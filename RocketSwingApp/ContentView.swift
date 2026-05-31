@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage("trailLength") private var trailLength = 1.0
     @State private var isShowingSettings = false
     @State private var isPaused = false
+    @State private var isFollowingRocket = false
 
     private let minimumCameraDistance = 0.95
     private let maximumCameraDistance = 30.0
@@ -32,24 +33,27 @@ struct ContentView: View {
                 ambienceVolume: Float(ambienceVolume),
                 rocketCount: rocketCount,
                 trailLength: Float(trailLength),
-                isPaused: isPaused
+                isPaused: isPaused,
+                isFollowingRocket: isFollowingRocket
             )
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
 
-            PauseButton(isPaused: isPaused) {
-                isPaused.toggle()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.top, 12)
-            .padding(.leading, 14)
+            HStack(spacing: 18) {
+                PauseButton(isPaused: isPaused) {
+                    isPaused.toggle()
+                }
 
-            SettingsButton {
-                isShowingSettings = true
+                FollowRocketButton(isFollowing: isFollowingRocket) {
+                    isFollowingRocket.toggle()
+                }
+
+                SettingsButton {
+                    isShowingSettings = true
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            .padding(.top, 12)
-            .padding(.trailing, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.bottom, 24)
 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -104,6 +108,7 @@ struct RocketSceneView: UIViewRepresentable {
     var rocketCount: Int
     var trailLength: Float
     var isPaused: Bool
+    var isFollowingRocket: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -129,7 +134,8 @@ struct RocketSceneView: UIViewRepresentable {
             masterVolume: masterVolume,
             missileVolume: missileVolume,
             ambienceVolume: ambienceVolume,
-            isPaused: isPaused
+            isPaused: isPaused,
+            isFollowingRocket: isFollowingRocket
         )
         return view
     }
@@ -141,6 +147,7 @@ struct RocketSceneView: UIViewRepresentable {
             ambienceVolume: ambienceVolume
         )
         context.coordinator.updatePaused(isPaused)
+        context.coordinator.updateFollowMode(isFollowingRocket)
 
         let clampedRocketCount = max(1, min(rocketCount, 50))
         let clampedTrailLength = max(0.35, min(trailLength, 2.5))
@@ -594,6 +601,8 @@ struct RocketSceneView: UIViewRepresentable {
         private var zoomInertiaDisplayLink: CADisplayLink?
         private var lastZoomInertiaTimestamp: CFTimeInterval?
         private var cameraZoomVelocity = 0.0
+        private var followDisplayLink: CADisplayLink?
+        private weak var followedRocket: SCNNode?
         private var masterVolume: Float = 0.8
         private var missileVolume: Float = 0.85
         private var ambienceVolume: Float = 0.65
@@ -612,6 +621,7 @@ struct RocketSceneView: UIViewRepresentable {
         private var lastSyncedCameraDistance: Double
         private var isInteractingWithCamera = false
         private var activeCameraGestures = 0
+        private var isFollowingRocket = false
         private var cameraPersistenceTask: Task<Void, Never>?
         private var panPreviousTranslation = CGPoint.zero
         private var pinchStartDistance = 0.0
@@ -660,7 +670,8 @@ struct RocketSceneView: UIViewRepresentable {
             masterVolume: Float,
             missileVolume: Float,
             ambienceVolume: Float,
-            isPaused: Bool
+            isPaused: Bool,
+            isFollowingRocket: Bool
         ) {
             self.scene = scene
             updateCamera(animated: false)
@@ -674,9 +685,14 @@ struct RocketSceneView: UIViewRepresentable {
             if !isPaused {
                 scheduleNextMissile()
             }
+            updateFollowMode(isFollowingRocket)
         }
 
         func syncExternalCameraDistance(_ distance: Double) {
+            guard !isFollowingRocket else {
+                return
+            }
+
             let clampedDistance = max(minimumCameraDistance, min(maximumCameraDistance, distance))
             guard !isInteractingWithCamera else {
                 return
@@ -712,6 +728,107 @@ struct RocketSceneView: UIViewRepresentable {
                 r: Float(cameraOrientation.real)
             )
             SCNTransaction.commit()
+        }
+
+        func updateFollowMode(_ shouldFollow: Bool) {
+            guard isFollowingRocket != shouldFollow else {
+                if shouldFollow {
+                    updateFollowCamera(animated: false)
+                }
+                return
+            }
+
+            isFollowingRocket = shouldFollow
+            if shouldFollow {
+                cameraPersistenceTask?.cancel()
+                stopCameraInertia()
+                stopZoomInertia()
+                isInteractingWithCamera = false
+                activeCameraGestures = 0
+                followedRocket = randomOrbitingRocket()
+                startFollowCamera()
+            } else {
+                stopFollowCamera()
+                followedRocket = nil
+                updateCamera(animated: true)
+            }
+        }
+
+        private func startFollowCamera() {
+            followDisplayLink?.invalidate()
+            updateFollowCamera(animated: true)
+
+            let displayLink = CADisplayLink(target: self, selector: #selector(stepFollowCamera(_:)))
+            displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
+            displayLink.add(to: .main, forMode: .common)
+            followDisplayLink = displayLink
+        }
+
+        private func stopFollowCamera() {
+            followDisplayLink?.invalidate()
+            followDisplayLink = nil
+        }
+
+        @objc private func stepFollowCamera(_ displayLink: CADisplayLink) {
+            updateFollowCamera(animated: false)
+        }
+
+        private func updateFollowCamera(animated: Bool) {
+            guard isFollowingRocket,
+                  let scene,
+                  let cameraNode = scene.rootNode.childNode(withName: "main-camera", recursively: false) else {
+                return
+            }
+
+            if followedRocket?.parent == nil {
+                followedRocket = randomOrbitingRocket()
+            }
+
+            guard let rocket = followedRocket else {
+                return
+            }
+
+            let presentation = rocket.presentation
+            let nose = presentation.convertPosition(SCNVector3(0, 1.05, 0), to: nil).simdVector
+            let body = presentation.convertPosition(SCNVector3(0, 0.12, 0), to: nil).simdVector
+            let tail = presentation.convertPosition(SCNVector3(0, -0.9, 0), to: nil).simdVector
+            var forward = nose - tail
+            if simd_length(forward) < 0.001 {
+                forward = SIMD3<Float>(0, 1, 0)
+            } else {
+                forward = simd_normalize(forward)
+            }
+
+            var side = simd_cross(SIMD3<Float>(0, 1, 0), forward)
+            if simd_length(side) < 0.001 {
+                side = SIMD3<Float>(1, 0, 0)
+            } else {
+                side = simd_normalize(side)
+            }
+            let up = simd_normalize(simd_cross(forward, side))
+            let followDistance = Float(max(1.35, min(3.8, currentCameraDistance * 0.36)))
+            let cameraPosition = tail - forward * followDistance + up * 0.48 + side * 0.18
+            let lookTarget = body + forward * 1.65
+
+            SCNTransaction.begin()
+            SCNTransaction.animationDuration = animated ? 0.22 : 0
+            SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeOut)
+            cameraNode.position = SCNVector3(cameraPosition.x, cameraPosition.y, cameraPosition.z)
+            cameraNode.look(
+                at: SCNVector3(lookTarget.x, lookTarget.y, lookTarget.z),
+                up: SCNVector3(up.x, up.y, up.z),
+                localFront: SCNVector3(0, 0, -1)
+            )
+            SCNTransaction.commit()
+        }
+
+        private func randomOrbitingRocket() -> SCNNode? {
+            guard let orbitGroup = scene?.rootNode.childNode(withName: "orbiting-rockets", recursively: false) else {
+                return nil
+            }
+
+            let rockets = orbitGroup.childNodes.filter { $0.name == "rocket-firing-source" }
+            return rockets.randomElement()
         }
 
         private func beginCameraInteraction() {
@@ -884,6 +1001,10 @@ struct RocketSceneView: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            guard !isFollowingRocket else {
+                return
+            }
+
             guard let view = recognizer.view else {
                 return
             }
@@ -912,6 +1033,10 @@ struct RocketSceneView: UIViewRepresentable {
         }
 
         @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            guard !isFollowingRocket else {
+                return
+            }
+
             switch recognizer.state {
             case .began:
                 beginCameraInteraction()
@@ -1230,6 +1355,24 @@ private struct PauseButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isPaused ? "Reprendre" : "Pause")
+        .settingsButtonBackground()
+    }
+}
+
+private struct FollowRocketButton: View {
+    let isFollowing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isFollowing ? "viewfinder.circle.fill" : "viewfinder")
+                .font(.system(size: 23, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 54, height: 54)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isFollowing ? "Quitter le suivi" : "Suivre une fusee")
         .settingsButtonBackground()
     }
 }
