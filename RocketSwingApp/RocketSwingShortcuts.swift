@@ -1,7 +1,7 @@
 import AppIntents
 
 @available(iOS 16.0, *)
-struct ShowHelloWorldIntent: AppIntent {
+struct ShowRocketSwingIntent: AppIntent {
     static let title: LocalizedStringResource = "Afficher Rocket Swing"
     static let description = IntentDescription("Ouvre l'app Rocket Swing.")
 
@@ -14,10 +14,10 @@ struct ShowHelloWorldIntent: AppIntent {
 }
 
 @available(iOS 16.0, *)
-struct HelloWorldShortcuts: AppShortcutsProvider {
+struct RocketSwingShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: ShowHelloWorldIntent(),
+            intent: ShowRocketSwingIntent(),
             phrases: [
                 "Afficher Rocket Swing dans \(.applicationName)",
                 "Ouvrir Rocket Swing dans \(.applicationName)"

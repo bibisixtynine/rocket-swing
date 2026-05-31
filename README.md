@@ -1,15 +1,15 @@
-# HelloWorldApp
+# RocketSwingApp
 
 Petite app iOS SwiftUI avec un ecran `Hello, World!` et un App Intent minimal.
 
 ## Ouvrir
 
 ```sh
-open HelloWorldApp.xcodeproj
+open RocketSwingApp.xcodeproj
 ```
 
 ## Compiler
 
 ```sh
-xcodebuild -project HelloWorldApp.xcodeproj -scheme HelloWorldApp -destination 'generic/platform=iOS Simulator' build
+xcodebuild -project RocketSwingApp.xcodeproj -scheme RocketSwingApp -destination 'generic/platform=iOS Simulator' build
 ```

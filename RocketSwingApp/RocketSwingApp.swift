@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HelloWorldApp: App {
+struct RocketSwingApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

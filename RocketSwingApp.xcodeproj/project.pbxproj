@@ -7,9 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		01B2C3D44A5B6C7D8E9F0001 /* HelloWorldApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0001 /* HelloWorldApp.swift */; };
+		01B2C3D44A5B6C7D8E9F0001 /* RocketSwingApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0001 /* RocketSwingApp.swift */; };
 		01B2C3D44A5B6C7D8E9F0002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0002 /* ContentView.swift */; };
-		01B2C3D44A5B6C7D8E9F0003 /* HelloWorldShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0003 /* HelloWorldShortcuts.swift */; };
+		01B2C3D44A5B6C7D8E9F0003 /* RocketSwingShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0003 /* RocketSwingShortcuts.swift */; };
 		01B2C3D44A5B6C7D8E9F0004 /* PremiumParticle.png in Resources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0004 /* PremiumParticle.png */; };
 		01B2C3D44A5B6C7D8E9F0006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0006 /* Assets.xcassets */; };
 		01B2C3D44A5B6C7D8E9F0007 /* Rocket.scnassets in Resources */ = {isa = PBXBuildFile; fileRef = 01B2C3D34A5B6C7D8E9F0007 /* Rocket.scnassets */; };
@@ -17,10 +17,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		01B2C3D14A5B6C7D8E9F0001 /* HelloWorldApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HelloWorldApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		01B2C3D34A5B6C7D8E9F0001 /* HelloWorldApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelloWorldApp.swift; sourceTree = "<group>"; };
+		01B2C3D14A5B6C7D8E9F0001 /* RocketSwingApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RocketSwingApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		01B2C3D34A5B6C7D8E9F0001 /* RocketSwingApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketSwingApp.swift; sourceTree = "<group>"; };
 		01B2C3D34A5B6C7D8E9F0002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		01B2C3D34A5B6C7D8E9F0003 /* HelloWorldShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelloWorldShortcuts.swift; sourceTree = "<group>"; };
+		01B2C3D34A5B6C7D8E9F0003 /* RocketSwingShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RocketSwingShortcuts.swift; sourceTree = "<group>"; };
 		01B2C3D34A5B6C7D8E9F0004 /* PremiumParticle.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = PremiumParticle.png; sourceTree = "<group>"; };
 		01B2C3D34A5B6C7D8E9F0005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		01B2C3D34A5B6C7D8E9F0006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -42,30 +42,30 @@
 		01B2C3D04A5B6C7D8E9F0001 = {
 			isa = PBXGroup;
 			children = (
-				01B2C3D24A5B6C7D8E9F0001 /* HelloWorldApp */,
+				01B2C3D24A5B6C7D8E9F0001 /* RocketSwingApp */,
 				01B2C3D24A5B6C7D8E9F0002 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		01B2C3D24A5B6C7D8E9F0001 /* HelloWorldApp */ = {
+		01B2C3D24A5B6C7D8E9F0001 /* RocketSwingApp */ = {
 			isa = PBXGroup;
 			children = (
-				01B2C3D34A5B6C7D8E9F0001 /* HelloWorldApp.swift */,
+				01B2C3D34A5B6C7D8E9F0001 /* RocketSwingApp.swift */,
 				01B2C3D34A5B6C7D8E9F0002 /* ContentView.swift */,
-				01B2C3D34A5B6C7D8E9F0003 /* HelloWorldShortcuts.swift */,
+				01B2C3D34A5B6C7D8E9F0003 /* RocketSwingShortcuts.swift */,
 				01B2C3D34A5B6C7D8E9F0004 /* PremiumParticle.png */,
 				01B2C3D34A5B6C7D8E9F0006 /* Assets.xcassets */,
 				01B2C3D34A5B6C7D8E9F0007 /* Rocket.scnassets */,
 				01B2C3D34A5B6C7D8E9F0008 /* Audio */,
 				01B2C3D34A5B6C7D8E9F0005 /* Info.plist */,
 			);
-			path = HelloWorldApp;
+			path = RocketSwingApp;
 			sourceTree = "<group>";
 		};
 		01B2C3D24A5B6C7D8E9F0002 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				01B2C3D14A5B6C7D8E9F0001 /* HelloWorldApp.app */,
+				01B2C3D14A5B6C7D8E9F0001 /* RocketSwingApp.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,9 +73,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		01B2C3D54A5B6C7D8E9F0001 /* HelloWorldApp */ = {
+		01B2C3D54A5B6C7D8E9F0001 /* RocketSwingApp */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 01B2C3DC4A5B6C7D8E9F0001 /* Build configuration list for PBXNativeTarget "HelloWorldApp" */;
+			buildConfigurationList = 01B2C3DC4A5B6C7D8E9F0001 /* Build configuration list for PBXNativeTarget "RocketSwingApp" */;
 			buildPhases = (
 				01B2C3D64A5B6C7D8E9F0001 /* Sources */,
 				01B2C3D74A5B6C7D8E9F0001 /* Frameworks */,
@@ -85,9 +85,9 @@
 			);
 			dependencies = (
 			);
-			name = HelloWorldApp;
-			productName = HelloWorldApp;
-			productReference = 01B2C3D14A5B6C7D8E9F0001 /* HelloWorldApp.app */;
+			name = RocketSwingApp;
+			productName = RocketSwingApp;
+			productReference = 01B2C3D14A5B6C7D8E9F0001 /* RocketSwingApp.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -105,7 +105,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 01B2C3DB4A5B6C7D8E9F0001 /* Build configuration list for PBXProject "HelloWorldApp" */;
+			buildConfigurationList = 01B2C3DB4A5B6C7D8E9F0001 /* Build configuration list for PBXProject "RocketSwingApp" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -119,7 +119,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				01B2C3D54A5B6C7D8E9F0001 /* HelloWorldApp */,
+				01B2C3D54A5B6C7D8E9F0001 /* RocketSwingApp */,
 			);
 		};
 /* End PBXProject section */
@@ -143,9 +143,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				01B2C3D44A5B6C7D8E9F0001 /* HelloWorldApp.swift in Sources */,
+				01B2C3D44A5B6C7D8E9F0001 /* RocketSwingApp.swift in Sources */,
 				01B2C3D44A5B6C7D8E9F0002 /* ContentView.swift in Sources */,
-				01B2C3D44A5B6C7D8E9F0003 /* HelloWorldShortcuts.swift in Sources */,
+				01B2C3D44A5B6C7D8E9F0003 /* RocketSwingShortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,10 +275,10 @@
 				DEVELOPMENT_TEAM = 8P3PDJPWHF;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = HelloWorldApp/Info.plist;
+				INFOPLIST_FILE = RocketSwingApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.codex.HelloWorldApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.codex.RocketSwingApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -298,10 +298,10 @@
 				DEVELOPMENT_TEAM = 8P3PDJPWHF;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = HelloWorldApp/Info.plist;
+				INFOPLIST_FILE = RocketSwingApp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.codex.HelloWorldApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.codex.RocketSwingApp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -315,7 +315,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		01B2C3DB4A5B6C7D8E9F0001 /* Build configuration list for PBXProject "HelloWorldApp" */ = {
+		01B2C3DB4A5B6C7D8E9F0001 /* Build configuration list for PBXProject "RocketSwingApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				01B2C3D94A5B6C7D8E9F0001 /* Debug */,
@@ -324,7 +324,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		01B2C3DC4A5B6C7D8E9F0001 /* Build configuration list for PBXNativeTarget "HelloWorldApp" */ = {
+		01B2C3DC4A5B6C7D8E9F0001 /* Build configuration list for PBXNativeTarget "RocketSwingApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				01B2C3DA4A5B6C7D8E9F0001 /* Debug */,
