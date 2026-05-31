@@ -16,6 +16,9 @@ struct ContentView: View {
     @State private var isShowingSettings = false
     @State private var isPaused = false
     @State private var isFollowingRocket = false
+    @State private var autolandRequest = 0
+    @State private var takeoffRequest = 0
+    @State private var areRocketsLanded = false
 
     private let minimumCameraDistance = 0.95
     private let maximumCameraDistance = 30.0
@@ -34,7 +37,10 @@ struct ContentView: View {
                 rocketCount: rocketCount,
                 trailLength: Float(trailLength),
                 isPaused: isPaused,
-                isFollowingRocket: isFollowingRocket
+                isFollowingRocket: isFollowingRocket,
+                autolandRequest: autolandRequest,
+                takeoffRequest: takeoffRequest,
+                areRocketsLanded: $areRocketsLanded
             )
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
@@ -46,6 +52,14 @@ struct ContentView: View {
 
                 FollowRocketButton(isFollowing: isFollowingRocket) {
                     isFollowingRocket.toggle()
+                }
+
+                AutolandButton(isLanded: areRocketsLanded) {
+                    if areRocketsLanded {
+                        takeoffRequest += 1
+                    } else {
+                        autolandRequest += 1
+                    }
                 }
 
                 SettingsButton {
@@ -109,12 +123,16 @@ struct RocketSceneView: UIViewRepresentable {
     var trailLength: Float
     var isPaused: Bool
     var isFollowingRocket: Bool
+    var autolandRequest: Int
+    var takeoffRequest: Int
+    @Binding var areRocketsLanded: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
             cameraDistance: $cameraDistance,
             cameraYaw: $cameraYaw,
             cameraPitch: $cameraPitch,
+            areRocketsLanded: $areRocketsLanded,
             minimumCameraDistance: minimumCameraDistance,
             maximumCameraDistance: maximumCameraDistance
         )
@@ -148,6 +166,8 @@ struct RocketSceneView: UIViewRepresentable {
         )
         context.coordinator.updatePaused(isPaused)
         context.coordinator.updateFollowMode(isFollowingRocket)
+        context.coordinator.handleAutolandRequest(autolandRequest)
+        context.coordinator.handleTakeoffRequest(takeoffRequest)
 
         let clampedRocketCount = max(1, min(rocketCount, 50))
         let clampedTrailLength = max(0.35, min(trailLength, 2.5))
@@ -194,7 +214,9 @@ struct RocketSceneView: UIViewRepresentable {
         scene.rootNode.addChildNode(rocketNode)
 
         addStarField(to: scene)
-        addOrbitingRockets(to: scene, rocketCount: max(1, min(rocketCount, 50)), trailLength: max(0.35, min(trailLength, 2.5)))
+        let clampedRocketCount = max(1, min(rocketCount, 50))
+        addLandingPlatforms(to: scene, count: clampedRocketCount)
+        addOrbitingRockets(to: scene, rocketCount: clampedRocketCount, trailLength: max(0.35, min(trailLength, 2.5)))
 
         let light = SCNNode()
         light.light = SCNLight()
@@ -267,7 +289,178 @@ struct RocketSceneView: UIViewRepresentable {
 
     private func rebuildOrbitingRockets(in scene: SCNScene, rocketCount: Int, trailLength: Float) {
         scene.rootNode.childNode(withName: "orbiting-rockets", recursively: false)?.removeFromParentNode()
+        scene.rootNode.childNode(withName: "landing-platforms", recursively: false)?.removeFromParentNode()
+        addLandingPlatforms(to: scene, count: rocketCount)
         addOrbitingRockets(to: scene, rocketCount: rocketCount, trailLength: trailLength)
+    }
+
+    private func addLandingPlatforms(to scene: SCNScene, count: Int) {
+        let colors: [UIColor] = [
+            .systemCyan,
+            .systemPink,
+            .systemYellow,
+            .systemGreen,
+            .systemOrange,
+            .systemPurple,
+            .systemBlue
+        ]
+        let platformGroup = SCNNode()
+        platformGroup.name = "landing-platforms"
+        scene.rootNode.addChildNode(platformGroup)
+
+        for index in 0..<count {
+            let color = colors[index % colors.count]
+            let platform = landingPlatformNode(
+                index: index,
+                accentColor: color,
+                secondaryColor: colors[(index + 3) % colors.count]
+            )
+            platform.position = randomPlatformPosition(for: index)
+            platform.eulerAngles = SCNVector3(
+                0,
+                Float.random(in: 0...(Float.pi * 2)),
+                0
+            )
+            platformGroup.addChildNode(platform)
+        }
+    }
+
+    private func randomPlatformPosition(for index: Int) -> SCNVector3 {
+        let angle = Float(index) * 2.399963 + Float.random(in: -0.36...0.36)
+        let radius = Float.random(in: 3.0...8.6)
+        let height = Float.random(in: -3.2...2.5)
+        return SCNVector3(
+            cos(angle) * radius + Float.random(in: -0.8...0.8),
+            height,
+            sin(angle) * radius + Float.random(in: -0.8...0.8)
+        )
+    }
+
+    private func landingPlatformNode(index: Int, accentColor: UIColor, secondaryColor: UIColor) -> SCNNode {
+        let root = SCNNode()
+        root.name = "landing-platform"
+
+        let diskRadius = CGFloat(Float.random(in: 0.36...0.58))
+        let diskHeight = CGFloat(Float.random(in: 0.12...0.18))
+        let disk = SCNCylinder(radius: diskRadius, height: diskHeight)
+        disk.radialSegmentCount = 64
+        disk.materials = [
+            platformTopMaterial(accentColor),
+            platformTopMaterial(accentColor),
+            platformSideMaterial(secondaryColor)
+        ]
+        let diskNode = SCNNode(geometry: disk)
+        root.addChildNode(diskNode)
+
+        let inset = SCNCylinder(radius: diskRadius * 0.62, height: diskHeight + 0.01)
+        inset.radialSegmentCount = 64
+        let insetMaterial = material(UIColor(white: 0.06, alpha: 1))
+        insetMaterial.emission.contents = accentColor.withAlphaComponent(0.08)
+        inset.materials = [insetMaterial]
+        let insetNode = SCNNode(geometry: inset)
+        insetNode.position = SCNVector3(0, Float(diskHeight) * 0.54, 0)
+        root.addChildNode(insetNode)
+
+        let ring = SCNTorus(ringRadius: diskRadius * 0.78, pipeRadius: 0.012)
+        ring.ringSegmentCount = 80
+        ring.pipeSegmentCount = 8
+        let ringMaterial = material(accentColor)
+        ringMaterial.emission.contents = accentColor.withAlphaComponent(0.48)
+        ring.materials = [ringMaterial]
+        let ringNode = SCNNode(geometry: ring)
+        ringNode.position = SCNVector3(0, Float(diskHeight) * 0.62, 0)
+        root.addChildNode(ringNode)
+
+        addPlatformEdgeLights(
+            to: root,
+            index: index,
+            radius: Float(diskRadius) + 0.012,
+            height: Float(diskHeight) * 0.18,
+            accentColor: accentColor,
+            secondaryColor: secondaryColor
+        )
+
+        let hover = CABasicAnimation(keyPath: "position.y")
+        hover.fromValue = -0.045
+        hover.toValue = 0.045
+        hover.duration = CFTimeInterval.random(in: 1.8...3.2)
+        hover.autoreverses = true
+        hover.repeatCount = .infinity
+        hover.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        hover.beginTime = CACurrentMediaTime() + CFTimeInterval(index) * 0.11
+        root.addAnimation(hover, forKey: "platform-hover")
+
+        return root
+    }
+
+    private func addPlatformEdgeLights(
+        to platform: SCNNode,
+        index: Int,
+        radius: Float,
+        height: Float,
+        accentColor: UIColor,
+        secondaryColor: UIColor
+    ) {
+        let lightCount = 8
+        for lightIndex in 0..<lightCount {
+            let color = lightIndex.isMultiple(of: 2) ? accentColor : secondaryColor
+            let bulb = SCNSphere(radius: 0.035)
+            bulb.segmentCount = 12
+            let bulbMaterial = material(color)
+            bulbMaterial.emission.contents = color
+            bulbMaterial.lightingModel = .constant
+            bulb.materials = [bulbMaterial]
+
+            let angle = Float(lightIndex) / Float(lightCount) * Float.pi * 2
+            let bulbNode = SCNNode(geometry: bulb)
+            bulbNode.name = "platform-edge-light"
+            bulbNode.position = SCNVector3(cos(angle) * radius, height, sin(angle) * radius)
+            platform.addChildNode(bulbNode)
+
+            let point = SCNLight()
+            point.type = .omni
+            point.color = color
+            point.intensity = 35
+            point.attenuationStartDistance = 0.05
+            point.attenuationEndDistance = 1.15
+            let pointNode = SCNNode()
+            pointNode.light = point
+            bulbNode.addChildNode(pointNode)
+
+            let blink = CABasicAnimation(keyPath: "opacity")
+            blink.fromValue = 0.24
+            blink.toValue = 1.0
+            blink.duration = CFTimeInterval.random(in: 0.34...0.86)
+            blink.autoreverses = true
+            blink.repeatCount = .infinity
+            blink.beginTime = CACurrentMediaTime() + CFTimeInterval(index + lightIndex) * 0.09
+            bulbNode.addAnimation(blink, forKey: "edge-light-blink")
+
+            let lightPulse = CABasicAnimation(keyPath: "light.intensity")
+            lightPulse.fromValue = 10
+            lightPulse.toValue = 58
+            lightPulse.duration = blink.duration
+            lightPulse.autoreverses = true
+            lightPulse.repeatCount = .infinity
+            lightPulse.beginTime = blink.beginTime
+            pointNode.addAnimation(lightPulse, forKey: "edge-light-intensity")
+        }
+    }
+
+    private func platformTopMaterial(_ color: UIColor) -> SCNMaterial {
+        let material = self.material(UIColor(white: 0.12, alpha: 1))
+        material.emission.contents = color.withAlphaComponent(0.10)
+        material.metalness.contents = 0.72
+        material.roughness.contents = 0.28
+        return material
+    }
+
+    private func platformSideMaterial(_ color: UIColor) -> SCNMaterial {
+        let material = self.material(UIColor(white: 0.04, alpha: 1))
+        material.emission.contents = color.withAlphaComponent(0.24)
+        material.metalness.contents = 0.88
+        material.roughness.contents = 0.18
+        return material
     }
 
     private func addOrbitingRockets(to scene: SCNScene, rocketCount: Int, trailLength: Float) {
@@ -314,10 +507,12 @@ struct RocketSceneView: UIViewRepresentable {
 
     private func attachTrail(to rocket: SCNNode, color: UIColor, length: Float) {
         let flame = engineFlame(color: color)
+        flame.name = "engine-flame"
         flame.position = SCNVector3(0, -1.13, 0)
         rocket.addChildNode(flame)
 
         let emitter = SCNNode()
+        emitter.name = "engine-trail"
         emitter.position = SCNVector3(0, -1.28, 0)
         emitter.addParticleSystem(trailParticles(color: color, length: length))
         rocket.addChildNode(emitter)
@@ -329,6 +524,7 @@ struct RocketSceneView: UIViewRepresentable {
         glowMaterial.transparency = 0.72
         glow.materials = [glowMaterial]
         let glowNode = SCNNode(geometry: glow)
+        glowNode.name = "engine-glow"
         glowNode.position = SCNVector3(0, -0.94, 0)
         rocket.addChildNode(glowNode)
     }
@@ -603,15 +799,22 @@ struct RocketSceneView: UIViewRepresentable {
         private var cameraZoomVelocity = 0.0
         private var followDisplayLink: CADisplayLink?
         private weak var followedRocket: SCNNode?
+        private var followCameraPosition: SIMD3<Float>?
+        private var followCameraLookTarget: SIMD3<Float>?
+        private var followCameraUp: SIMD3<Float>?
         private var masterVolume: Float = 0.8
         private var missileVolume: Float = 0.85
         private var ambienceVolume: Float = 0.65
         private var builtRocketCount: Int?
         private var builtTrailLength: Float?
         private var isPaused = false
+        private var isAutolanding = false
+        private var lastAutolandRequest = 0
+        private var lastTakeoffRequest = 0
         private var cameraDistance: Binding<Double>
         private var cameraYaw: Binding<Double>
         private var cameraPitch: Binding<Double>
+        private var areRocketsLanded: Binding<Bool>
         private let minimumCameraDistance: Double
         private let maximumCameraDistance: Double
         private var currentCameraDistance: Double
@@ -631,12 +834,14 @@ struct RocketSceneView: UIViewRepresentable {
             cameraDistance: Binding<Double>,
             cameraYaw: Binding<Double>,
             cameraPitch: Binding<Double>,
+            areRocketsLanded: Binding<Bool>,
             minimumCameraDistance: Double,
             maximumCameraDistance: Double
         ) {
             self.cameraDistance = cameraDistance
             self.cameraYaw = cameraYaw
             self.cameraPitch = cameraPitch
+            self.areRocketsLanded = areRocketsLanded
             self.minimumCameraDistance = minimumCameraDistance
             self.maximumCameraDistance = maximumCameraDistance
             self.currentCameraDistance = cameraDistance.wrappedValue
@@ -745,13 +950,502 @@ struct RocketSceneView: UIViewRepresentable {
                 stopZoomInertia()
                 isInteractingWithCamera = false
                 activeCameraGestures = 0
-                followedRocket = randomOrbitingRocket()
+                followedRocket = randomRocket()
                 startFollowCamera()
             } else {
                 stopFollowCamera()
                 followedRocket = nil
+                followCameraPosition = nil
+                followCameraLookTarget = nil
+                followCameraUp = nil
                 updateCamera(animated: true)
             }
+        }
+
+        func handleAutolandRequest(_ request: Int) {
+            guard request != lastAutolandRequest else {
+                return
+            }
+
+            lastAutolandRequest = request
+            beginAutoland()
+        }
+
+        func handleTakeoffRequest(_ request: Int) {
+            guard request != lastTakeoffRequest else {
+                return
+            }
+
+            lastTakeoffRequest = request
+            beginTakeoff()
+        }
+
+        private func beginAutoland() {
+            guard let scene else {
+                return
+            }
+
+            isAutolanding = true
+            setRocketsLanded(false)
+            missileTimer?.invalidate()
+            missileTimer = nil
+
+            let rockets = orderedRockets(in: scene)
+            let platforms = orderedLandingPlatforms(in: scene)
+            guard !rockets.isEmpty, !platforms.isEmpty else {
+                return
+            }
+
+            var longestLandingDuration: TimeInterval = 0
+            for (index, rocket) in rockets.enumerated() {
+                guard index < platforms.count else {
+                    break
+                }
+
+                let presentationTransform = rocket.presentation.worldTransform
+                rocket.removeAllActions()
+                rocket.removeAllAnimations()
+                rocket.transform = presentationTransform
+                rocket.opacity = 1
+
+                let platform = platforms[index]
+                let platformPosition = platform.presentation.worldPosition
+                let landingHeight: Float = index == 0 ? 0.74 : 0.40
+                let hoverHeight: Float = index == 0 ? 2.25 : 1.35
+                let hoverPosition = SCNVector3(
+                    platformPosition.x,
+                    platformPosition.y + hoverHeight,
+                    platformPosition.z
+                )
+                let yaw = Float(index) * 0.73
+                let approachDuration = TimeInterval(2.35 + Double(index % 5) * 0.22)
+                let descentDuration = TimeInterval(1.95 + Double(index % 4) * 0.16)
+                let delay = TimeInterval(index) * 0.08
+                longestLandingDuration = max(longestLandingDuration, delay + approachDuration + 0.08 + descentDuration)
+
+                let startPosition = rocket.presentation.worldPosition
+                let startOrientation = rocket.presentation.simdWorldOrientation
+                let startForward = Self.rocketForward(for: rocket)
+                let uprightOrientation = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+                let travelDistance = max(1.4, simd_length(hoverPosition.simdVector - startPosition.simdVector))
+                let controlA = startPosition.simdVector + startForward * min(travelDistance * 0.42, 2.4)
+                    + SIMD3<Float>(0, 0.55, 0)
+                let controlB = hoverPosition.simdVector + SIMD3<Float>(0, 0.82 + Float(index % 3) * 0.16, 0)
+                let approach = Self.guidedCurveAction(
+                    from: startPosition,
+                    to: hoverPosition,
+                    controlA: SCNVector3(controlA),
+                    controlB: SCNVector3(controlB),
+                    startOrientation: startOrientation,
+                    finalOrientation: uprightOrientation,
+                    finalOrientationBlendStart: 0.54,
+                    duration: approachDuration
+                )
+                let descend = Self.verticalLandingAction(
+                    from: hoverPosition,
+                    platform: platform,
+                    landingHeight: landingHeight,
+                    orientation: uprightOrientation,
+                    duration: descentDuration
+                )
+
+                rocket.runAction(.sequence([
+                    .wait(duration: delay),
+                    approach,
+                    .wait(duration: 0.08),
+                    descend,
+                    .run { node in
+                        Self.cutEngine(on: node)
+                        Self.attachLandedRocket(
+                            node,
+                            to: platform,
+                            landingHeight: landingHeight,
+                            orientation: uprightOrientation
+                        )
+                    }
+                ]), forKey: "autoland")
+            }
+
+            Task { @MainActor [weak self] in
+                let delay = UInt64((longestLandingDuration + 0.35) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+                guard let self, self.isAutolanding else {
+                    return
+                }
+
+                self.setRocketsLanded(true)
+            }
+        }
+
+        private func beginTakeoff() {
+            guard let scene else {
+                return
+            }
+
+            isAutolanding = false
+            setRocketsLanded(false)
+
+            let rockets = orderedRockets(in: scene)
+            let colors: [UIColor] = [
+                .systemRed,
+                .systemOrange,
+                .systemMint,
+                .systemPurple,
+                .systemCyan,
+                .systemIndigo
+            ]
+
+            var longestTakeoffDuration: TimeInterval = 0
+            for (index, rocket) in rockets.enumerated() {
+                let currentTransform = rocket.presentation.worldTransform
+                rocket.removeAllActions()
+                rocket.removeAllAnimations()
+                if rocket.parent?.name == "landing-platform" {
+                    rocket.removeFromParentNode()
+                    scene.rootNode.addChildNode(rocket)
+                }
+                rocket.transform = currentTransform
+                rocket.opacity = 1
+                Self.restoreEngine(on: rocket, color: colors[index % colors.count])
+
+                let targetPosition: SCNVector3
+                let targetOrientation: simd_quatf
+                if index == 0 {
+                    targetPosition = SCNVector3Zero
+                    targetOrientation = simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+                } else {
+                    let orbitIndex = index - 1
+                    targetPosition = RocketSceneView.orbitPosition(for: orbitIndex, progress: 0)
+                    targetOrientation = RocketSceneView.rocketOrientation(for: orbitIndex, progress: 0)
+                }
+
+                let currentPosition = rocket.presentation.worldPosition
+                let delay = TimeInterval(index) * 0.06
+                let takeoffDuration = TimeInterval(2.55 + Double(index % 5) * 0.18)
+                longestTakeoffDuration = max(longestTakeoffDuration, delay + takeoffDuration)
+
+                let startOrientation = rocket.presentation.simdWorldOrientation
+                let targetForward = targetOrientation.act(SIMD3<Float>(0, 1, 0))
+                let travelDistance = max(1.4, simd_length(targetPosition.simdVector - currentPosition.simdVector))
+                let controlA = currentPosition.simdVector + SIMD3<Float>(0, min(travelDistance * 0.48, 2.7), 0)
+                let controlB = targetPosition.simdVector - targetForward * min(travelDistance * 0.42, 2.5)
+                    + SIMD3<Float>(0, 0.35, 0)
+                let flyBack = Self.guidedCurveAction(
+                    from: currentPosition,
+                    to: targetPosition,
+                    controlA: SCNVector3(controlA),
+                    controlB: SCNVector3(controlB),
+                    startOrientation: startOrientation,
+                    finalOrientation: targetOrientation,
+                    finalOrientationBlendStart: 0.68,
+                    duration: takeoffDuration
+                )
+
+                rocket.runAction(.sequence([
+                    .wait(duration: delay),
+                    flyBack,
+                    .run { node in
+                        guard index > 0 else {
+                            return
+                        }
+
+                        Self.startOrbit(on: node, index: index - 1)
+                    }
+                ]), forKey: "takeoff")
+            }
+
+            Task { @MainActor [weak self] in
+                let delay = UInt64((longestTakeoffDuration + 0.45) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+                guard let self, !self.isAutolanding else {
+                    return
+                }
+
+                self.setRocketsLanded(false)
+                self.scheduleNextMissile()
+            }
+        }
+
+        private func setRocketsLanded(_ isLanded: Bool) {
+            guard areRocketsLanded.wrappedValue != isLanded else {
+                return
+            }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                self.areRocketsLanded.wrappedValue = isLanded
+            }
+        }
+
+        private func orderedRockets(in scene: SCNScene) -> [SCNNode] {
+            let allRockets = scene.rootNode.childNodes { node, _ in
+                node.name == "rocket-firing-source"
+            }
+            var rockets: [SCNNode] = []
+            if let centralRocket = scene.rootNode.childNodes.first(where: { $0.name == "rocket-firing-source" }) {
+                rockets.append(centralRocket)
+            }
+
+            if let orbitGroup = scene.rootNode.childNode(withName: "orbiting-rockets", recursively: false) {
+                rockets.append(contentsOf: orbitGroup.childNodes.filter { $0.name == "rocket-firing-source" })
+            }
+            for rocket in allRockets where !rockets.contains(where: { $0 === rocket }) {
+                rockets.append(rocket)
+            }
+            return rockets
+        }
+
+        private func orderedLandingPlatforms(in scene: SCNScene) -> [SCNNode] {
+            guard let platformGroup = scene.rootNode.childNode(withName: "landing-platforms", recursively: false) else {
+                return []
+            }
+
+            return platformGroup.childNodes.filter { $0.name == "landing-platform" }
+        }
+
+        nonisolated private static func guidedCurveAction(
+            from start: SCNVector3,
+            to end: SCNVector3,
+            controlA: SCNVector3,
+            controlB: SCNVector3,
+            startOrientation: simd_quatf,
+            finalOrientation: simd_quatf,
+            finalOrientationBlendStart: Float,
+            duration: TimeInterval
+        ) -> SCNAction {
+            SCNAction.customAction(duration: duration) { node, elapsed in
+                let rawProgress = Float(elapsed / CGFloat(duration))
+                let progress = smoothstep(rawProgress)
+                let position = cubicBezier(
+                    start: start.simdVector,
+                    controlA: controlA.simdVector,
+                    controlB: controlB.simdVector,
+                    end: end.simdVector,
+                    progress: progress
+                )
+                let tangent = cubicBezierTangent(
+                    start: start.simdVector,
+                    controlA: controlA.simdVector,
+                    controlB: controlB.simdVector,
+                    end: end.simdVector,
+                    progress: progress
+                )
+                let tangentOrientation = orientationFollowing(direction: tangent, fallback: startOrientation)
+                let launchBlend = smoothstep(min(rawProgress / 0.22, 1))
+                var orientation = simd_slerp(startOrientation, tangentOrientation, launchBlend)
+
+                if rawProgress > finalOrientationBlendStart {
+                    let blend = smoothstep((rawProgress - finalOrientationBlendStart) / max(0.01, 1 - finalOrientationBlendStart))
+                    orientation = simd_slerp(orientation, finalOrientation, blend)
+                }
+
+                node.position = SCNVector3(position)
+                node.simdOrientation = simd_normalize(orientation)
+            }
+        }
+
+        nonisolated private static func verticalLandingAction(
+            from start: SCNVector3,
+            platform: SCNNode,
+            landingHeight: Float,
+            orientation: simd_quatf,
+            duration: TimeInterval
+        ) -> SCNAction {
+            SCNAction.customAction(duration: duration) { node, elapsed in
+                let rawProgress = Float(elapsed / CGFloat(duration))
+                let progress = smoothstep(rawProgress)
+                let movingLandingPosition = platform.presentation.convertPosition(
+                    SCNVector3(0, landingHeight, 0),
+                    to: nil
+                )
+                node.position = mix(currentPosition: start, targetPosition: movingLandingPosition, progress: progress)
+                node.simdOrientation = orientation
+            }
+        }
+
+        nonisolated private static func attachLandedRocket(
+            _ rocket: SCNNode,
+            to platform: SCNNode,
+            landingHeight: Float,
+            orientation: simd_quatf
+        ) {
+            rocket.removeFromParentNode()
+            platform.addChildNode(rocket)
+            rocket.position = SCNVector3(0, landingHeight, 0)
+            rocket.simdOrientation = simd_normalize(simd_inverse(platform.presentation.simdWorldOrientation) * orientation)
+        }
+
+        nonisolated private static func rocketForward(for rocket: SCNNode) -> SIMD3<Float> {
+            let presentation = rocket.presentation
+            let nose = presentation.convertPosition(SCNVector3(0, 1.02, 0), to: nil).simdVector
+            let tail = presentation.convertPosition(SCNVector3(0, -0.82, 0), to: nil).simdVector
+            let forward = nose - tail
+            if simd_length(forward) < 0.001 {
+                return SIMD3<Float>(0, 1, 0)
+            }
+            return simd_normalize(forward)
+        }
+
+        nonisolated private static func orientationFollowing(
+            direction: SIMD3<Float>,
+            fallback: simd_quatf
+        ) -> simd_quatf {
+            guard simd_length(direction) > 0.001 else {
+                return fallback
+            }
+
+            return simd_normalize(simd_quatf(from: SIMD3<Float>(0, 1, 0), to: simd_normalize(direction)))
+        }
+
+        nonisolated private static func cubicBezier(
+            start: SIMD3<Float>,
+            controlA: SIMD3<Float>,
+            controlB: SIMD3<Float>,
+            end: SIMD3<Float>,
+            progress: Float
+        ) -> SIMD3<Float> {
+            let t = max(0, min(progress, 1))
+            let inverse = 1 - t
+            return inverse * inverse * inverse * start
+                + 3 * inverse * inverse * t * controlA
+                + 3 * inverse * t * t * controlB
+                + t * t * t * end
+        }
+
+        nonisolated private static func cubicBezierTangent(
+            start: SIMD3<Float>,
+            controlA: SIMD3<Float>,
+            controlB: SIMD3<Float>,
+            end: SIMD3<Float>,
+            progress: Float
+        ) -> SIMD3<Float> {
+            let t = max(0, min(progress, 1))
+            let inverse = 1 - t
+            return 3 * inverse * inverse * (controlA - start)
+                + 6 * inverse * t * (controlB - controlA)
+                + 3 * t * t * (end - controlB)
+        }
+
+        nonisolated private static func cutEngine(on rocket: SCNNode) {
+            rocket.enumerateChildNodes { child, _ in
+                if child.name == "engine-trail" {
+                    child.particleSystems?.forEach { $0.birthRate = 0 }
+                    child.removeAllActions()
+                    child.removeFromParentNode()
+                } else if child.name == "engine-flame" || child.name == "engine-glow" {
+                    child.removeAllActions()
+                    child.removeFromParentNode()
+                }
+            }
+        }
+
+        nonisolated private static func restoreEngine(on rocket: SCNNode, color: UIColor) {
+            cutEngine(on: rocket)
+
+            let flame = SCNNode()
+            flame.name = "engine-flame"
+            flame.position = SCNVector3(0, -1.13, 0)
+
+            let outer = SCNCone(topRadius: 0.055, bottomRadius: 0.18, height: 0.42)
+            outer.radialSegmentCount = 32
+            outer.materials = [takeoffFlameMaterial(color.withAlphaComponent(0.72))]
+            flame.addChildNode(SCNNode(geometry: outer))
+
+            let core = SCNCone(topRadius: 0.028, bottomRadius: 0.09, height: 0.34)
+            core.radialSegmentCount = 32
+            core.materials = [takeoffFlameMaterial(UIColor.white.withAlphaComponent(0.78))]
+            let coreNode = SCNNode(geometry: core)
+            coreNode.position = SCNVector3(0, 0.03, 0)
+            flame.addChildNode(coreNode)
+
+            let pulse = CABasicAnimation(keyPath: "scale")
+            pulse.fromValue = SCNVector3(0.82, 0.92, 0.82)
+            pulse.toValue = SCNVector3(1.08, 1.04, 1.08)
+            pulse.duration = 0.18
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            flame.addAnimation(pulse, forKey: "flame-pulse")
+            rocket.addChildNode(flame)
+
+            let emitter = SCNNode()
+            emitter.name = "engine-trail"
+            emitter.position = SCNVector3(0, -1.28, 0)
+            emitter.addParticleSystem(takeoffTrailParticles(color: color))
+            rocket.addChildNode(emitter)
+        }
+
+        nonisolated private static func startOrbit(on rocket: SCNNode, index: Int) {
+            let duration = TimeInterval(7.4 + Double(index % 7) * 1.15)
+            let orbitAction = SCNAction.customAction(duration: duration) { node, elapsed in
+                let progress = Float(elapsed / CGFloat(duration))
+                node.position = RocketSceneView.orbitPosition(for: index, progress: progress)
+                node.simdOrientation = RocketSceneView.rocketOrientation(for: index, progress: progress)
+            }
+            rocket.runAction(.repeatForever(orbitAction), forKey: "smooth-orbit")
+        }
+
+        nonisolated private static func takeoffFlameMaterial(_ color: UIColor) -> SCNMaterial {
+            let material = SCNMaterial()
+            material.diffuse.contents = color
+            material.emission.contents = color
+            material.transparency = 0.72
+            material.blendMode = .add
+            material.isDoubleSided = true
+            material.writesToDepthBuffer = false
+            return material
+        }
+
+        nonisolated private static func takeoffTrailParticles(color: UIColor) -> SCNParticleSystem {
+            let particles = SCNParticleSystem()
+            particles.birthRate = 260
+            particles.loops = true
+            particles.particleLifeSpan = 1.15
+            particles.particleLifeSpanVariation = 0.35
+            particles.particleSize = 0.085
+            particles.particleSizeVariation = 0.03
+            particles.particleImage = UIImage(named: "PremiumParticle")
+            particles.particleColor = color.withAlphaComponent(0.82)
+            particles.particleColorVariation = SCNVector4(0.18, 0.18, 0.18, 0.35)
+            particles.blendMode = .additive
+            particles.emitterShape = SCNSphere(radius: 0.055)
+            particles.birthDirection = .constant
+            particles.emittingDirection = SCNVector3(0, -1, 0)
+            particles.spreadingAngle = 8
+            particles.particleVelocity = 0.025
+            particles.particleVelocityVariation = 0.035
+            particles.isAffectedByGravity = false
+            particles.stretchFactor = 0.12
+            return particles
+        }
+
+        nonisolated private static func smoothstep(_ value: Float) -> Float {
+            let clamped = max(0, min(value, 1))
+            return clamped * clamped * (3 - 2 * clamped)
+        }
+
+        nonisolated private static func mix(
+            currentPosition: SCNVector3,
+            targetPosition: SCNVector3,
+            progress: Float
+        ) -> SCNVector3 {
+            let t = progress
+            return SCNVector3(
+                currentPosition.x + (targetPosition.x - currentPosition.x) * t,
+                currentPosition.y + (targetPosition.y - currentPosition.y) * t,
+                currentPosition.z + (targetPosition.z - currentPosition.z) * t
+            )
+        }
+
+        nonisolated private static func mix(
+            current: SIMD3<Float>,
+            target: SIMD3<Float>,
+            progress: Float
+        ) -> SIMD3<Float> {
+            let t = max(0, min(progress, 1))
+            return current + (target - current) * t
         }
 
         private func startFollowCamera() {
@@ -781,7 +1475,7 @@ struct RocketSceneView: UIViewRepresentable {
             }
 
             if followedRocket?.parent == nil {
-                followedRocket = randomOrbitingRocket()
+                followedRocket = randomRocket()
             }
 
             guard let rocket = followedRocket else {
@@ -807,27 +1501,72 @@ struct RocketSceneView: UIViewRepresentable {
             }
             let up = simd_normalize(simd_cross(forward, side))
             let followDistance = Float(max(1.35, min(3.8, currentCameraDistance * 0.36)))
-            let cameraPosition = tail - forward * followDistance + up * 0.48 + side * 0.18
-            let lookTarget = body + forward * 1.65
+            let isLandingView = isAutolanding || areRocketsLanded.wrappedValue
+            let desiredCameraPosition: SIMD3<Float>
+            let desiredLookTarget: SIMD3<Float>
+            let desiredUp: SIMD3<Float>
+
+            if isLandingView {
+                let sideDistance = max(2.35, followDistance * 1.45)
+                desiredCameraPosition = body + side * sideDistance + SIMD3<Float>(0, 0.92, 0) - forward * 0.18
+                desiredLookTarget = body + SIMD3<Float>(0, 0.18, 0)
+                desiredUp = SIMD3<Float>(0, 1, 0)
+            } else {
+                desiredCameraPosition = tail - forward * followDistance + up * 0.48 + side * 0.18
+                desiredLookTarget = body + forward * 1.65
+                desiredUp = up
+            }
+
+            if followCameraPosition == nil {
+                followCameraPosition = cameraNode.presentation.worldPosition.simdVector
+            }
+            if followCameraLookTarget == nil {
+                followCameraLookTarget = desiredLookTarget
+            }
+            if followCameraUp == nil {
+                followCameraUp = desiredUp
+            }
+
+            let blend: Float = animated ? 0.08 : 0.11
+            let cameraPosition = Self.mix(
+                current: followCameraPosition ?? desiredCameraPosition,
+                target: desiredCameraPosition,
+                progress: blend
+            )
+            let lookTarget = Self.mix(
+                current: followCameraLookTarget ?? desiredLookTarget,
+                target: desiredLookTarget,
+                progress: blend
+            )
+            let cameraUp = simd_normalize(Self.mix(
+                current: followCameraUp ?? desiredUp,
+                target: desiredUp,
+                progress: blend
+            ))
+            followCameraPosition = cameraPosition
+            followCameraLookTarget = lookTarget
+            followCameraUp = cameraUp
 
             SCNTransaction.begin()
-            SCNTransaction.animationDuration = animated ? 0.22 : 0
+            SCNTransaction.animationDuration = 0
             SCNTransaction.animationTimingFunction = CAMediaTimingFunction(name: .easeOut)
             cameraNode.position = SCNVector3(cameraPosition.x, cameraPosition.y, cameraPosition.z)
             cameraNode.look(
                 at: SCNVector3(lookTarget.x, lookTarget.y, lookTarget.z),
-                up: SCNVector3(up.x, up.y, up.z),
+                up: SCNVector3(cameraUp.x, cameraUp.y, cameraUp.z),
                 localFront: SCNVector3(0, 0, -1)
             )
             SCNTransaction.commit()
         }
 
-        private func randomOrbitingRocket() -> SCNNode? {
-            guard let orbitGroup = scene?.rootNode.childNode(withName: "orbiting-rockets", recursively: false) else {
+        private func randomRocket() -> SCNNode? {
+            guard let scene else {
                 return nil
             }
 
-            let rockets = orbitGroup.childNodes.filter { $0.name == "rocket-firing-source" }
+            let rockets = scene.rootNode.childNodes { node, _ in
+                node.name == "rocket-firing-source"
+            }
             return rockets.randomElement()
         }
 
@@ -1128,7 +1867,7 @@ struct RocketSceneView: UIViewRepresentable {
         }
 
         private func scheduleNextMissile() {
-            guard !isPaused else {
+            guard !isPaused, !isAutolanding else {
                 return
             }
 
@@ -1142,7 +1881,7 @@ struct RocketSceneView: UIViewRepresentable {
         }
 
         private func fireRandomMissile() {
-            guard !isPaused, let scene else {
+            guard !isPaused, !isAutolanding, let scene else {
                 return
             }
 
@@ -1377,6 +2116,24 @@ private struct FollowRocketButton: View {
     }
 }
 
+private struct AutolandButton: View {
+    let isLanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isLanded ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                .font(.system(size: 23, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 54, height: 54)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isLanded ? "Takeoff" : "Autoland")
+        .settingsButtonBackground()
+    }
+}
+
 private struct SettingsButton: View {
     let action: () -> Void
 
@@ -1519,6 +2276,10 @@ private extension View {
 }
 
 private extension SCNVector3 {
+    init(_ vector: SIMD3<Float>) {
+        self.init(vector.x, vector.y, vector.z)
+    }
+
     var simdVector: SIMD3<Float> {
         SIMD3<Float>(x, y, z)
     }
