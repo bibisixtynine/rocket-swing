@@ -51,14 +51,6 @@ struct ContentView: View {
             .padding(.top, 12)
             .padding(.trailing, 14)
 
-            ZoomControls(
-                canZoomIn: cameraDistance > minimumCameraDistance,
-                canZoomOut: cameraDistance < maximumCameraDistance,
-                zoomIn: { cameraDistance = max(minimumCameraDistance, cameraDistance - 1.2) },
-                zoomOut: { cameraDistance = min(maximumCameraDistance, cameraDistance + 1.2) }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
@@ -1385,75 +1377,5 @@ private extension View {
         } else {
             self.background(.ultraThinMaterial, in: Circle())
         }
-    }
-}
-
-private struct ZoomControls: View {
-    let canZoomIn: Bool
-    let canZoomOut: Bool
-    let zoomIn: () -> Void
-    let zoomOut: () -> Void
-
-    var body: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 14) {
-                HStack(spacing: 14) {
-                    ZoomButton(
-                        systemName: "minus.magnifyingglass",
-                        accessibilityLabel: "S'eloigner",
-                        isEnabled: canZoomOut,
-                        action: zoomOut
-                    )
-                    .glassEffect(.regular.interactive(), in: .circle)
-
-                    ZoomButton(
-                        systemName: "plus.magnifyingglass",
-                        accessibilityLabel: "Se rapprocher",
-                        isEnabled: canZoomIn,
-                        action: zoomIn
-                    )
-                    .glassEffect(.regular.interactive(), in: .circle)
-                }
-            }
-        } else {
-            HStack(spacing: 14) {
-                ZoomButton(
-                    systemName: "minus.magnifyingglass",
-                    accessibilityLabel: "S'eloigner",
-                    isEnabled: canZoomOut,
-                    action: zoomOut
-                )
-                .background(.ultraThinMaterial, in: Circle())
-
-                ZoomButton(
-                    systemName: "plus.magnifyingglass",
-                    accessibilityLabel: "Se rapprocher",
-                    isEnabled: canZoomIn,
-                    action: zoomIn
-                )
-                .background(.ultraThinMaterial, in: Circle())
-            }
-        }
-    }
-}
-
-private struct ZoomButton: View {
-    let systemName: String
-    let accessibilityLabel: String
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 64, height: 64)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.42)
-        .accessibilityLabel(accessibilityLabel)
     }
 }
