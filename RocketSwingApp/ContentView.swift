@@ -284,29 +284,22 @@ struct RocketSceneView: UIViewRepresentable {
                 scale: 0.24
             )
             satellite.name = "rocket-firing-source"
-            satellite.position = orbitPosition(for: index, progress: 0)
-            satellite.eulerAngles = rocketOrientation(for: index, progress: 0)
+            satellite.position = Self.orbitPosition(for: index, progress: 0)
+            satellite.simdOrientation = Self.rocketOrientation(for: index, progress: 0)
             orbitGroup.addChildNode(satellite)
 
-            let orbitPath = CAKeyframeAnimation(keyPath: "position")
-            orbitPath.values = (0...180).map { step in
-                NSValue(scnVector3: orbitPosition(for: index, progress: Float(step) / 180))
+            let duration = TimeInterval(7.4 + Double(index % 7) * 1.15)
+            let phaseDelay = TimeInterval(index) * 0.18
+            let orbitAction = SCNAction.customAction(duration: duration) { node, elapsed in
+                let progress = Float(elapsed / CGFloat(duration))
+                node.position = Self.orbitPosition(for: index, progress: progress)
+                node.simdOrientation = Self.rocketOrientation(for: index, progress: progress)
             }
-            orbitPath.calculationMode = .paced
-            orbitPath.duration = CFTimeInterval(5.2 + Double(index) * 1.15)
-            orbitPath.repeatCount = .infinity
-            orbitPath.beginTime = CACurrentMediaTime() + Double(index) * 0.18
-            satellite.addAnimation(orbitPath, forKey: "unique-orbit")
-
-            let orientationPath = CAKeyframeAnimation(keyPath: "eulerAngles")
-            orientationPath.values = (0...180).map { step in
-                NSValue(scnVector3: rocketOrientation(for: index, progress: Float(step) / 180))
-            }
-            orientationPath.calculationMode = .linear
-            orientationPath.duration = orbitPath.duration
-            orientationPath.repeatCount = .infinity
-            orientationPath.beginTime = orbitPath.beginTime
-            satellite.addAnimation(orientationPath, forKey: "rocket-orientation")
+            let delayedOrbit = SCNAction.sequence([
+                .wait(duration: phaseDelay),
+                .repeatForever(orbitAction)
+            ])
+            satellite.runAction(delayedOrbit, forKey: "smooth-orbit")
 
             attachTrail(to: satellite, color: colors[index % colors.count], length: trailLength)
         }
@@ -371,17 +364,20 @@ struct RocketSceneView: UIViewRepresentable {
         return material
     }
 
-    private func orbitPosition(for index: Int, progress: Float) -> SCNVector3 {
-        let angle = progress * Float.pi * 2 + Float(index) * 0.74
-        let horizontalRadius = Float(1.75 + Double(index % 3) * 0.55)
-        let verticalRadius = Float(0.55 + Double((index + 1) % 3) * 0.46)
-        let depthRadius = Float(0.85 + Double(index) * 0.28)
-        let secondaryPhase = angle * Float(index + 2) * 0.5
+    nonisolated private static func orbitPosition(for index: Int, progress: Float) -> SCNVector3 {
+        let angle = progress * Float.pi * 2
+        let phase = Float(index) * 0.83
+        let horizontalRadius = Float(1.75 + Double(index % 4) * 0.48)
+        let verticalRadius = Float(0.62 + Double((index + 1) % 3) * 0.34)
+        let depthRadius = Float(1.05 + Double(index % 6) * 0.36)
+        let verticalFrequency = Float((index % 3) + 1)
+        let radialFrequency = Float((index % 2) + 1)
+        let radialPulse = 1 + sin(angle * radialFrequency + phase * 0.7) * 0.08
 
         var point = SCNVector3(
-            cos(angle) * horizontalRadius,
-            sin(secondaryPhase) * verticalRadius,
-            sin(angle) * depthRadius
+            cos(angle + phase) * horizontalRadius * radialPulse,
+            sin(angle * verticalFrequency + phase) * verticalRadius,
+            sin(angle + phase) * depthRadius * radialPulse
         )
 
         let rotations: [(Float, Float, Float)] = [
@@ -396,26 +392,25 @@ struct RocketSceneView: UIViewRepresentable {
         point = rotate(point, aroundY: rotation.1)
         point = rotate(point, aroundZ: rotation.2)
 
-        let wobble = sin(angle * Float(index + 3)) * 0.16
+        let wobble = sin(angle * Float((index % 4) + 2) + phase) * 0.10
         return SCNVector3(point.x, point.y + wobble, point.z)
     }
 
-    private func rocketOrientation(for index: Int, progress: Float) -> SCNVector3 {
-        let current = orbitPosition(for: index, progress: progress)
-        var nextProgress = progress + 0.012
-        if nextProgress > 1 {
-            nextProgress -= 1
-        }
-        let next = orbitPosition(for: index, progress: nextProgress)
-        let direction = SCNVector3(next.x - current.x, next.y - current.y, next.z - current.z)
-        let yaw = atan2(direction.x, direction.z)
-        let horizontal = sqrt(direction.x * direction.x + direction.z * direction.z)
-        let pitch = -atan2(direction.y, horizontal) + Float.pi / 2
-        let roll = sin((progress * Float.pi * 2) + Float(index)) * 0.35
-        return SCNVector3(pitch, yaw, roll)
+    nonisolated private static func rocketOrientation(for index: Int, progress: Float) -> simd_quatf {
+        let previous = orbitPosition(for: index, progress: progress - 0.004).simdVector
+        let next = orbitPosition(for: index, progress: progress + 0.004).simdVector
+        let rawDirection = next - previous
+        let direction = simd_length(rawDirection) > 0.0001
+            ? simd_normalize(rawDirection)
+            : SIMD3<Float>(0, 1, 0)
+        let tangentAlignment = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: direction)
+        let angle = progress * Float.pi * 2
+        let roll = sin(angle * Float((index % 3) + 1) + Float(index) * 0.37) * 0.22
+        let rollAroundTangent = simd_quatf(angle: roll, axis: direction)
+        return simd_normalize(simd_mul(rollAroundTangent, tangentAlignment))
     }
 
-    private func rotate(_ vector: SCNVector3, aroundX angle: Float) -> SCNVector3 {
+    nonisolated private static func rotate(_ vector: SCNVector3, aroundX angle: Float) -> SCNVector3 {
         SCNVector3(
             vector.x,
             vector.y * cos(angle) - vector.z * sin(angle),
@@ -423,7 +418,7 @@ struct RocketSceneView: UIViewRepresentable {
         )
     }
 
-    private func rotate(_ vector: SCNVector3, aroundY angle: Float) -> SCNVector3 {
+    nonisolated private static func rotate(_ vector: SCNVector3, aroundY angle: Float) -> SCNVector3 {
         SCNVector3(
             vector.x * cos(angle) + vector.z * sin(angle),
             vector.y,
@@ -431,7 +426,7 @@ struct RocketSceneView: UIViewRepresentable {
         )
     }
 
-    private func rotate(_ vector: SCNVector3, aroundZ angle: Float) -> SCNVector3 {
+    nonisolated private static func rotate(_ vector: SCNVector3, aroundZ angle: Float) -> SCNVector3 {
         SCNVector3(
             vector.x * cos(angle) - vector.y * sin(angle),
             vector.x * sin(angle) + vector.y * cos(angle),
@@ -1377,5 +1372,11 @@ private extension View {
         } else {
             self.background(.ultraThinMaterial, in: Circle())
         }
+    }
+}
+
+private extension SCNVector3 {
+    var simdVector: SIMD3<Float> {
+        SIMD3<Float>(x, y, z)
     }
 }
