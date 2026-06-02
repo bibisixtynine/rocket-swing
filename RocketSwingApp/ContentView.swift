@@ -13,6 +13,8 @@ struct ContentView: View {
     @AppStorage("ambienceVolume") private var ambienceVolume = 0.65
     @AppStorage("rocketCount") private var rocketCount = 6
     @AppStorage("trailLength") private var trailLength = 1.0
+    @AppStorage("padRingSpacing") private var padRingSpacing = 1.35
+    @AppStorage("padLateralSpacing") private var padLateralSpacing = 0.45
     @State private var isShowingSettings = false
     @State private var isPaused = false
     @State private var isFollowingRocket = false
@@ -36,6 +38,8 @@ struct ContentView: View {
                 ambienceVolume: Float(ambienceVolume),
                 rocketCount: rocketCount,
                 trailLength: Float(trailLength),
+                padRingSpacing: Float(padRingSpacing),
+                padLateralSpacing: Float(padLateralSpacing),
                 isPaused: isPaused,
                 isFollowingRocket: isFollowingRocket,
                 autolandRequest: autolandRequest,
@@ -90,6 +94,8 @@ struct ContentView: View {
             ambienceVolume = min(max(ambienceVolume, 0), 1)
             rocketCount = min(max(rocketCount, 1), 50)
             trailLength = min(max(trailLength, 0.35), 2.5)
+            padRingSpacing = min(max(padRingSpacing, 0), 3.0)
+            padLateralSpacing = min(max(padLateralSpacing, 0), 3.0)
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(
@@ -97,7 +103,9 @@ struct ContentView: View {
                 missileVolume: $missileVolume,
                 ambienceVolume: $ambienceVolume,
                 rocketCount: $rocketCount,
-                trailLength: $trailLength
+                trailLength: $trailLength,
+                padRingSpacing: $padRingSpacing,
+                padLateralSpacing: $padLateralSpacing
             )
             .settingsSheetPresentationStyle()
         }
@@ -118,6 +126,12 @@ private extension View {
 }
 
 struct RocketSceneView: UIViewRepresentable {
+    private static let platformDiameter: Float = 1.0
+    private static let platformDiskRadius: CGFloat = 0.5
+    private static let platformDiskHeight: CGFloat = 0.16
+    private static let lunarPlatformScale: Float = 0.68
+    private static let lunarPadDiameter: Float = platformDiameter * lunarPlatformScale
+
     @Binding var cameraDistance: Double
     @Binding var cameraYaw: Double
     @Binding var cameraPitch: Double
@@ -128,6 +142,8 @@ struct RocketSceneView: UIViewRepresentable {
     var ambienceVolume: Float
     var rocketCount: Int
     var trailLength: Float
+    var padRingSpacing: Float
+    var padLateralSpacing: Float
     var isPaused: Bool
     var isFollowingRocket: Bool
     var autolandRequest: Int
@@ -178,18 +194,26 @@ struct RocketSceneView: UIViewRepresentable {
 
         let clampedRocketCount = max(1, min(rocketCount, 50))
         let clampedTrailLength = max(0.35, min(trailLength, 2.5))
+        let clampedPadRingSpacing = max(0, min(padRingSpacing, 3.0))
+        let clampedPadLateralSpacing = max(0, min(padLateralSpacing, 3.0))
         if context.coordinator.shouldRebuildOrbitingRockets(
             rocketCount: clampedRocketCount,
-            trailLength: clampedTrailLength
+            trailLength: clampedTrailLength,
+            padRingSpacing: clampedPadRingSpacing,
+            padLateralSpacing: clampedPadLateralSpacing
         ), let scene = uiView.scene {
             rebuildOrbitingRockets(
                 in: scene,
                 rocketCount: clampedRocketCount,
-                trailLength: clampedTrailLength
+                trailLength: clampedTrailLength,
+                padRingSpacing: clampedPadRingSpacing,
+                padLateralSpacing: clampedPadLateralSpacing
             )
             context.coordinator.markOrbitingRocketsBuilt(
                 rocketCount: clampedRocketCount,
-                trailLength: clampedTrailLength
+                trailLength: clampedTrailLength,
+                padRingSpacing: clampedPadRingSpacing,
+                padLateralSpacing: clampedPadLateralSpacing
             )
         }
 
@@ -214,9 +238,11 @@ struct RocketSceneView: UIViewRepresentable {
 
         addStarField(to: scene)
         let clampedRocketCount = max(1, min(rocketCount, 50))
-        addLandingPlatforms(to: scene, count: clampedRocketCount)
+        let clampedPadRingSpacing = max(0, min(padRingSpacing, 3.0))
+        let clampedPadLateralSpacing = max(0, min(padLateralSpacing, 3.0))
+        addLandingPlatforms(to: scene, count: clampedRocketCount, ringSpacing: clampedPadRingSpacing, lateralSpacing: clampedPadLateralSpacing)
         addOrbitingRockets(to: scene, rocketCount: clampedRocketCount, trailLength: max(0.35, min(trailLength, 2.5)))
-        addLunarMissionWorld(to: scene, count: clampedRocketCount)
+        addLunarMissionWorld(to: scene, count: clampedRocketCount, ringSpacing: clampedPadRingSpacing, lateralSpacing: clampedPadLateralSpacing)
         placeRocketsOnInitialPlatforms(in: scene)
 
         let light = SCNNode()
@@ -288,7 +314,7 @@ struct RocketSceneView: UIViewRepresentable {
         }
     }
 
-    private func rebuildOrbitingRockets(in scene: SCNScene, rocketCount: Int, trailLength: Float) {
+    private func rebuildOrbitingRockets(in scene: SCNScene, rocketCount: Int, trailLength: Float, padRingSpacing: Float, padLateralSpacing: Float) {
         scene.rootNode.childNode(withName: "orbiting-rockets", recursively: false)?.removeFromParentNode()
         scene.rootNode.childNode(withName: "landing-platforms", recursively: false)?.removeFromParentNode()
         scene.rootNode.childNodes { node, _ in
@@ -296,9 +322,9 @@ struct RocketSceneView: UIViewRepresentable {
         }
         .forEach { $0.removeFromParentNode() }
         addCentralRocket(to: scene)
-        addLandingPlatforms(to: scene, count: rocketCount)
+        addLandingPlatforms(to: scene, count: rocketCount, ringSpacing: padRingSpacing, lateralSpacing: padLateralSpacing)
         addOrbitingRockets(to: scene, rocketCount: rocketCount, trailLength: trailLength)
-        addLunarMissionWorld(to: scene, count: rocketCount)
+        addLunarMissionWorld(to: scene, count: rocketCount, ringSpacing: padRingSpacing, lateralSpacing: padLateralSpacing)
         placeRocketsOnInitialPlatforms(in: scene)
     }
 
@@ -339,7 +365,7 @@ struct RocketSceneView: UIViewRepresentable {
         }
     }
 
-    private func addLunarMissionWorld(to scene: SCNScene, count: Int) {
+    private func addLunarMissionWorld(to scene: SCNScene, count: Int, ringSpacing: Float, lateralSpacing: Float) {
         scene.rootNode.childNode(withName: "lunar-mission-world", recursively: false)?.removeFromParentNode()
 
         let world = SCNNode()
@@ -397,17 +423,20 @@ struct RocketSceneView: UIViewRepresentable {
             let pad = landingPlatformNode(index: index, accentColor: habitatColors[index % habitatColors.count], secondaryColor: .systemCyan)
             pad.name = "lunar-landing-platform"
             pad.setValue(NSNumber(value: index), forKey: "platformIndex")
-            let ringCapacity = 14
-            let ring = index / ringCapacity
-            let slot = index % ringCapacity
-            let slotsOnRing = min(ringCapacity, max(1, count - ring * ringCapacity))
-            let radius: Float = 1.85 + Float(ring) * 0.48
-            let angle = Float(slot) / Float(slotsOnRing) * Float.pi * 2 + Float(ring) * 0.21
-            let x = cos(angle) * radius
-            let z = 1.2 + sin(angle) * radius
-            pad.position = lunarSurfacePosition(x: x, z: z, lift: 0.025)
-            pad.simdOrientation = lunarSurfaceOrientation(x: x, z: z, yaw: angle + Float.pi)
-            pad.scale = SCNVector3(0.56, 0.56, 0.56)
+            let layout = sphericalConcentricPadLayout(
+                index: index,
+                count: count,
+                sphereRadius: 4.2,
+                minimumRadius: Float(domeFootingRadius) + Self.lunarPadDiameter * 0.65,
+                podDiameter: Self.lunarPadDiameter,
+                ringSpacing: ringSpacing,
+                lateralSpacing: lateralSpacing
+            )
+            let angle = layout.angle + 0.14
+            let surface = lunarSurfacePointAroundBase(angle: angle, radius: layout.radius, lift: 0.025)
+            pad.position = surface.position
+            pad.simdOrientation = lunarSurfaceOrientation(normal: surface.normal, yaw: angle + Float.pi)
+            pad.scale = SCNVector3(Self.lunarPlatformScale, Self.lunarPlatformScale, Self.lunarPlatformScale)
             pad.removeAllAnimations()
             lunarPads.addChildNode(pad)
         }
@@ -415,21 +444,52 @@ struct RocketSceneView: UIViewRepresentable {
 
     private func lunarSurfacePosition(x: Float, z: Float, lift: Float) -> SCNVector3 {
         let moonRadius: Float = 4.2
-        let clampedX = max(-3.25, min(3.25, x))
-        let clampedZ = max(-1.35, min(3.35, z))
-        let surfaceY = sqrt(max(0, moonRadius * moonRadius - clampedX * clampedX - clampedZ * clampedZ))
-        return SCNVector3(clampedX, surfaceY + lift, clampedZ)
+        let point = clampedLunarPlanePoint(x: x, z: z, moonRadius: moonRadius)
+        let surfaceY = sqrt(max(0, moonRadius * moonRadius - point.x * point.x - point.z * point.z))
+        return SCNVector3(point.x, surfaceY + lift, point.z)
     }
 
     private func lunarSurfaceOrientation(x: Float, z: Float, yaw: Float) -> simd_quatf {
         let moonRadius: Float = 4.2
-        let clampedX = max(-3.25, min(3.25, x))
-        let clampedZ = max(-1.35, min(3.35, z))
-        let surfaceY = sqrt(max(0, moonRadius * moonRadius - clampedX * clampedX - clampedZ * clampedZ))
-        let normal = simd_normalize(SIMD3<Float>(clampedX, surfaceY, clampedZ))
+        let point = clampedLunarPlanePoint(x: x, z: z, moonRadius: moonRadius)
+        let surfaceY = sqrt(max(0, moonRadius * moonRadius - point.x * point.x - point.z * point.z))
+        let normal = simd_normalize(SIMD3<Float>(point.x, surfaceY, point.z))
+        return lunarSurfaceOrientation(normal: normal, yaw: yaw)
+    }
+
+    private func lunarSurfacePointAroundBase(angle: Float, radius: Float, lift: Float) -> (position: SCNVector3, normal: SIMD3<Float>) {
+        let moonRadius: Float = 4.2
+        let baseNormal = lunarBaseNormal(moonRadius: moonRadius)
+        let tangentX = simd_normalize(SIMD3<Float>(1, 0, 0) - simd_dot(SIMD3<Float>(1, 0, 0), baseNormal) * baseNormal)
+        let tangentZ = simd_normalize(simd_cross(baseNormal, tangentX))
+        let tangentDirection = simd_normalize(cos(angle) * tangentX + sin(angle) * tangentZ)
+        let surfaceAngle = min(radius / moonRadius, Float.pi * 0.82)
+        let normal = simd_normalize(cos(surfaceAngle) * baseNormal + sin(surfaceAngle) * tangentDirection)
+        let point = normal * (moonRadius + lift)
+        return (SCNVector3(point.x, point.y, point.z), normal)
+    }
+
+    private func lunarBaseNormal(moonRadius: Float) -> SIMD3<Float> {
+        let baseZ: Float = 1.2
+        let baseY = sqrt(max(0, moonRadius * moonRadius - baseZ * baseZ))
+        return simd_normalize(SIMD3<Float>(0, baseY, baseZ))
+    }
+
+    private func lunarSurfaceOrientation(normal: SIMD3<Float>, yaw: Float) -> simd_quatf {
         let tangentAlignment = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: normal)
         let spin = simd_quatf(angle: yaw, axis: normal)
         return simd_normalize(simd_mul(spin, tangentAlignment))
+    }
+
+    private func clampedLunarPlanePoint(x: Float, z: Float, moonRadius: Float) -> (x: Float, z: Float) {
+        let maxPlaneRadius = moonRadius * 0.94
+        let length = sqrt(x * x + z * z)
+        guard length > maxPlaneRadius, length > 0 else {
+            return (x, z)
+        }
+
+        let scale = maxPlaneRadius / length
+        return (x * scale, z * scale)
     }
 
     private func addGlassFacetGrid(to dome: SCNNode) {
@@ -501,7 +561,7 @@ struct RocketSceneView: UIViewRepresentable {
         return node
     }
 
-    private func addLandingPlatforms(to scene: SCNScene, count: Int) {
+    private func addLandingPlatforms(to scene: SCNScene, count: Int, ringSpacing: Float, lateralSpacing: Float) {
         let colors: [UIColor] = [
             .systemCyan,
             .systemPink,
@@ -523,33 +583,111 @@ struct RocketSceneView: UIViewRepresentable {
                 secondaryColor: colors[(index + 3) % colors.count]
             )
             platform.setValue(NSNumber(value: index), forKey: "platformIndex")
-            platform.position = randomPlatformPosition(for: index)
-            platform.eulerAngles = SCNVector3(
-                0,
-                Float.random(in: 0...(Float.pi * 2)),
-                0
-            )
+            platform.position = initialPadPosition(index: index, count: count, ringSpacing: ringSpacing, lateralSpacing: lateralSpacing)
+            platform.eulerAngles = SCNVector3(0, Float(index) / Float(max(1, count)) * Float.pi * 2 + Float.pi, 0)
             platformGroup.addChildNode(platform)
         }
     }
 
-    private func randomPlatformPosition(for index: Int) -> SCNVector3 {
-        let angle = Float(index) * 2.399963 + Float.random(in: -0.36...0.36)
-        let radius = Float.random(in: 3.0...8.6)
-        let height = Float.random(in: -3.2...2.5)
-        return SCNVector3(
-            cos(angle) * radius + Float.random(in: -0.8...0.8),
-            height,
-            sin(angle) * radius + Float.random(in: -0.8...0.8)
+    private func initialPadPosition(index: Int, count: Int, ringSpacing: Float, lateralSpacing: Float) -> SCNVector3 {
+        let layout = concentricPadLayout(
+            index: index,
+            count: count,
+            hasCenterPod: true,
+            minimumRadius: Self.platformDiameter * 1.15,
+            podDiameter: Self.platformDiameter,
+            ringSpacing: ringSpacing,
+            lateralSpacing: lateralSpacing
         )
+        let height = layout.ring == 0 ? 0 : sin(layout.angle * 1.7 + Float(layout.ring) * 0.41) * 0.46
+        return SCNVector3(
+            cos(layout.angle) * layout.radius,
+            height,
+            sin(layout.angle) * layout.radius
+        )
+    }
+
+    private func concentricPadLayout(
+        index: Int,
+        count: Int,
+        hasCenterPod: Bool,
+        minimumRadius: Float,
+        podDiameter: Float,
+        ringSpacing: Float,
+        lateralSpacing: Float
+    ) -> (angle: Float, radius: Float, ring: Int) {
+        if hasCenterPod && index == 0 {
+            return (0, 0, 0)
+        }
+
+        let centerDistance = podDiameter * (1 + max(0, min(lateralSpacing, 3.0)))
+        let ringStep = podDiameter * (1 + max(0, min(ringSpacing, 3.0)))
+        let adjustedIndex = hasCenterPod ? index - 1 : index
+        let totalRingPods = max(0, count - (hasCenterPod ? 1 : 0))
+        var ring = 0
+        var remainingBeforeRing = adjustedIndex
+        var radius = minimumRadius
+        var capacity = max(1, Int(floor((Float.pi * 2 * radius) / centerDistance)))
+        while remainingBeforeRing >= capacity {
+            remainingBeforeRing -= capacity
+            ring += 1
+            radius = minimumRadius + Float(ring) * ringStep
+            capacity = max(1, Int(floor((Float.pi * 2 * radius) / centerDistance)))
+        }
+
+        let remainingOnRing = max(1, totalRingPods - (adjustedIndex - remainingBeforeRing))
+        let slotsOnRing = min(capacity, remainingOnRing)
+        let slot = remainingBeforeRing
+        let angle = Float(slot) / Float(slotsOnRing) * Float.pi * 2 + Float(ring) * 0.19
+        return (angle, radius, ring + (hasCenterPod ? 1 : 0))
+    }
+
+    private func sphericalConcentricPadLayout(
+        index: Int,
+        count: Int,
+        sphereRadius: Float,
+        minimumRadius: Float,
+        podDiameter: Float,
+        ringSpacing: Float,
+        lateralSpacing: Float
+    ) -> (angle: Float, radius: Float, ring: Int) {
+        let centerDistance = podDiameter * (1 + max(0, min(lateralSpacing, 3.0)))
+        let ringStep = podDiameter * (1 + max(0, min(ringSpacing, 3.0)))
+        let safeSphereRadius = max(sphereRadius, 0.1)
+        let maxSurfaceRadius = safeSphereRadius * 1.45
+        var ring = 0
+        var remainingBeforeRing = index
+        var radius = minimumRadius
+        var capacity = sphericalRingCapacity(surfaceRadius: radius, sphereRadius: safeSphereRadius, centerDistance: centerDistance)
+
+        while remainingBeforeRing >= capacity {
+            remainingBeforeRing -= capacity
+            ring += 1
+            radius = min(minimumRadius + Float(ring) * ringStep, maxSurfaceRadius)
+            capacity = sphericalRingCapacity(surfaceRadius: radius, sphereRadius: safeSphereRadius, centerDistance: centerDistance)
+        }
+
+        let usedBeforeRing = index - remainingBeforeRing
+        let remainingOnRing = max(1, count - usedBeforeRing)
+        let slotsOnRing = min(capacity, remainingOnRing)
+        let angleStep = Float.pi * 2 / Float(slotsOnRing)
+        let stagger = (ring % 2 == 0 ? 0 : angleStep * 0.5) + Float(ring) * 0.11
+        let angle = Float(remainingBeforeRing) * angleStep + stagger
+        return (angle, radius, ring)
+    }
+
+    private func sphericalRingCapacity(surfaceRadius: Float, sphereRadius: Float, centerDistance: Float) -> Int {
+        let theta = min(max(surfaceRadius / sphereRadius, 0.02), Float.pi * 0.48)
+        let circumference = Float.pi * 2 * sphereRadius * sin(theta)
+        return max(1, Int(floor(circumference / max(centerDistance, 0.1))))
     }
 
     private func landingPlatformNode(index: Int, accentColor: UIColor, secondaryColor: UIColor) -> SCNNode {
         let root = SCNNode()
         root.name = "landing-platform"
 
-        let diskRadius = CGFloat(Float.random(in: 0.36...0.58))
-        let diskHeight = CGFloat(Float.random(in: 0.12...0.18))
+        let diskRadius = Self.platformDiskRadius
+        let diskHeight = Self.platformDiskHeight
         let disk = SCNCylinder(radius: diskRadius, height: diskHeight)
         disk.radialSegmentCount = 64
         disk.materials = [
@@ -1081,6 +1219,8 @@ struct RocketSceneView: UIViewRepresentable {
         private var ambienceVolume: Float = 0.65
         private var builtRocketCount: Int?
         private var builtTrailLength: Float?
+        private var builtPadRingSpacing: Float?
+        private var builtPadLateralSpacing: Float?
         private var isPaused = false
         private var isAutolanding = false
         private var missionPhase: MissionPhase = .homeLanded
@@ -1396,6 +1536,10 @@ struct RocketSceneView: UIViewRepresentable {
                 rocket.transform = currentTransform
                 Self.restoreBaseScale(on: rocket)
                 rocket.opacity = 1
+                rocket.setValue(NSNumber(value: 0), forKey: "followCameraStage")
+                rocket.setValue(NSNumber(value: 0), forKey: "missionProgress")
+                rocket.setValue(false, forKey: "isLandingDescent")
+                rocket.setValue(0 as Float, forKey: "landingProgress")
                 Self.restoreEngine(on: rocket, color: colors[index % colors.count])
 
                 let currentPosition = rocket.presentation.worldPosition
@@ -1602,6 +1746,9 @@ struct RocketSceneView: UIViewRepresentable {
             SCNAction.customAction(duration: duration) { node, elapsed in
                 let rawProgress = Float(elapsed / CGFloat(duration))
                 let progress = smoothstep(rawProgress)
+                node.setValue(NSNumber(value: rawProgress), forKey: "missionProgress")
+                let followStage = rawProgress < 0.34 ? 0 : (rawProgress > 0.68 ? 2 : 1)
+                node.setValue(NSNumber(value: followStage), forKey: "followCameraStage")
                 var position = cubicBezier(
                     start: start.simdVector,
                     controlA: controlA.simdVector,
@@ -1651,6 +1798,8 @@ struct RocketSceneView: UIViewRepresentable {
             SCNAction.customAction(duration: duration) { node, elapsed in
                 let rawProgress = Float(elapsed / CGFloat(duration))
                 let progress = smoothstep(rawProgress)
+                node.setValue(NSNumber(value: 0), forKey: "followCameraStage")
+                node.setValue(NSNumber(value: rawProgress), forKey: "missionProgress")
                 node.position = mix(currentPosition: start, targetPosition: end, progress: progress)
                 node.simdOrientation = orientation
             }
@@ -1666,6 +1815,7 @@ struct RocketSceneView: UIViewRepresentable {
             SCNAction.customAction(duration: duration) { node, elapsed in
                 let rawProgress = Float(elapsed / CGFloat(duration))
                 let progress = smoothstep(rawProgress)
+                node.setValue(NSNumber(value: 3), forKey: "followCameraStage")
                 node.setValue(progress, forKey: "landingProgress")
                 node.setValue(true, forKey: "isLandingDescent")
                 let movingLandingPosition = platform.presentation.convertPosition(
@@ -1944,29 +2094,22 @@ struct RocketSceneView: UIViewRepresentable {
             let up = simd_normalize(simd_cross(forward, side))
             let followDistance = Float(max(1.35, min(3.8, currentCameraDistance * 0.36)))
             let isLandingView = isAutolanding || areRocketsLanded.wrappedValue
-            let landingProgress = rocket.value(forKey: "landingProgress") as? Float
+            let followStage = (rocket.value(forKey: "followCameraStage") as? NSNumber)?.intValue ?? -1
             let isDescending = (rocket.value(forKey: "isLandingDescent") as? Bool) == true
             let desiredCameraPosition: SIMD3<Float>
             let desiredLookTarget: SIMD3<Float>
             let desiredUp: SIMD3<Float>
 
-            if isDescending {
-                let progress = landingProgress ?? 0
-                if progress < 0.68 {
-                    desiredCameraPosition = body + up * 3.2 - forward * 0.18
-                    desiredLookTarget = body
-                    desiredUp = forward
-                } else {
-                    let sideDistance = max(2.2, followDistance * 1.35)
-                    desiredCameraPosition = body + side * sideDistance + up * 0.45
-                    desiredLookTarget = body + forward * 0.18
-                    desiredUp = forward
-                }
+            if followStage == 0 || followStage == 2 || followStage == 3 || isDescending {
+                let sideDistance = max(2.35, followDistance * 1.45)
+                desiredCameraPosition = body + side * sideDistance + up * 0.42 - forward * 0.14
+                desiredLookTarget = body + forward * 0.34
+                desiredUp = forward
             } else if isLandingView {
                 let sideDistance = max(2.35, followDistance * 1.45)
                 desiredCameraPosition = body + side * sideDistance + SIMD3<Float>(0, 0.92, 0) - forward * 0.18
                 desiredLookTarget = body + SIMD3<Float>(0, 0.18, 0)
-                desiredUp = SIMD3<Float>(0, 1, 0)
+                desiredUp = forward
             } else {
                 desiredCameraPosition = tail - forward * followDistance + up * 0.48 + side * 0.18
                 desiredLookTarget = body + forward * 1.65
@@ -1983,7 +2126,7 @@ struct RocketSceneView: UIViewRepresentable {
                 followCameraUp = desiredUp
             }
 
-            let blend: Float = animated ? 0.08 : 0.11
+            let blend: Float = animated ? 0.045 : 0.055
             let cameraPosition = Self.mix(
                 current: followCameraPosition ?? desiredCameraPosition,
                 target: desiredCameraPosition,
@@ -2284,13 +2427,18 @@ struct RocketSceneView: UIViewRepresentable {
             }
         }
 
-        func shouldRebuildOrbitingRockets(rocketCount: Int, trailLength: Float) -> Bool {
-            builtRocketCount != rocketCount || abs((builtTrailLength ?? -1) - trailLength) > 0.01
+        func shouldRebuildOrbitingRockets(rocketCount: Int, trailLength: Float, padRingSpacing: Float, padLateralSpacing: Float) -> Bool {
+            builtRocketCount != rocketCount ||
+                abs((builtTrailLength ?? -1) - trailLength) > 0.01 ||
+                abs((builtPadRingSpacing ?? -1) - padRingSpacing) > 0.01 ||
+                abs((builtPadLateralSpacing ?? -1) - padLateralSpacing) > 0.01
         }
 
-        func markOrbitingRocketsBuilt(rocketCount: Int, trailLength: Float) {
+        func markOrbitingRocketsBuilt(rocketCount: Int, trailLength: Float, padRingSpacing: Float, padLateralSpacing: Float) {
             builtRocketCount = rocketCount
             builtTrailLength = trailLength
+            builtPadRingSpacing = padRingSpacing
+            builtPadLateralSpacing = padLateralSpacing
         }
 
         private var ambiencePlaybackVolume: Float {
@@ -2613,6 +2761,8 @@ private struct SettingsView: View {
     @Binding var ambienceVolume: Double
     @Binding var rocketCount: Int
     @Binding var trailLength: Double
+    @Binding var padRingSpacing: Double
+    @Binding var padLateralSpacing: Double
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2651,6 +2801,22 @@ private struct SettingsView: View {
                         valueText: String(format: "%.1fx", trailLength),
                         value: $trailLength,
                         bounds: 0.35...2.5
+                    )
+
+                    SettingsSlider(
+                        title: "Ecart anneaux",
+                        systemName: "circle.grid.2x2.fill",
+                        valueText: String(format: "%.1fx pod", padRingSpacing),
+                        value: $padRingSpacing,
+                        bounds: 0...3.0
+                    )
+
+                    SettingsSlider(
+                        title: "Ecart lateral",
+                        systemName: "arrow.left.and.right",
+                        valueText: String(format: "%.1fx pod", padLateralSpacing),
+                        value: $padLateralSpacing,
+                        bounds: 0...3.0
                     )
                 }
             }
