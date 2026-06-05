@@ -54,6 +54,7 @@ struct ContentView: View {
     @AppStorage("cameraPitch") private var cameraPitch = 0.0
     @AppStorage("masterVolume") private var masterVolume = 0.8
     @AppStorage("missileVolume") private var missileVolume = 0.85
+    @AppStorage("missileFireFrequency") private var missileFireFrequency = 1.0
     @AppStorage("ambienceVolume") private var ambienceVolume = 0.65
     @AppStorage("rocketCount") private var rocketCount = 6
     @AppStorage("trailLength") private var trailLength = 1.0
@@ -79,6 +80,7 @@ struct ContentView: View {
                 maximumCameraDistance: maximumCameraDistance,
                 masterVolume: Float(masterVolume),
                 missileVolume: Float(missileVolume),
+                missileFireFrequency: Float(missileFireFrequency),
                 ambienceVolume: Float(ambienceVolume),
                 rocketCount: rocketCount,
                 trailLength: Float(trailLength),
@@ -137,6 +139,7 @@ struct ContentView: View {
             cameraPitch = min(max(cameraPitch, -1.15), 1.15)
             masterVolume = min(max(masterVolume, 0), 1)
             missileVolume = min(max(missileVolume, 0), 1)
+            missileFireFrequency = min(max(missileFireFrequency, 0), 4.0)
             ambienceVolume = min(max(ambienceVolume, 0), 1)
             rocketCount = min(max(rocketCount, 1), 50)
             trailLength = min(max(trailLength, 0.35), 2.5)
@@ -147,6 +150,7 @@ struct ContentView: View {
             SettingsView(
                 masterVolume: $masterVolume,
                 missileVolume: $missileVolume,
+                missileFireFrequency: $missileFireFrequency,
                 ambienceVolume: $ambienceVolume,
                 rocketCount: $rocketCount,
                 trailLength: $trailLength,
@@ -189,6 +193,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
     var maximumCameraDistance: Double
     var masterVolume: Float
     var missileVolume: Float
+    var missileFireFrequency: Float
     var ambienceVolume: Float
     var rocketCount: Int
     var trailLength: Float
@@ -246,6 +251,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
             scene: scene,
             masterVolume: masterVolume,
             missileVolume: missileVolume,
+            missileFireFrequency: missileFireFrequency,
             ambienceVolume: ambienceVolume,
             isPaused: isPaused,
             isFollowingRocket: isFollowingRocket
@@ -257,6 +263,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         context.coordinator.updateVolumes(
             masterVolume: masterVolume,
             missileVolume: missileVolume,
+            missileFireFrequency: missileFireFrequency,
             ambienceVolume: ambienceVolume
         )
         context.coordinator.updatePaused(isPaused)
@@ -287,6 +294,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
                 padRingSpacing: clampedPadRingSpacing,
                 padLateralSpacing: clampedPadLateralSpacing
             )
+            context.coordinator.restartMissileLoop()
         }
 
         context.coordinator.syncExternalCameraDistance(cameraDistance)
@@ -1288,6 +1296,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         private var followCameraUp: SIMD3<Float>?
         private var masterVolume: Float = 0.8
         private var missileVolume: Float = 0.85
+        private var missileFireFrequency: Float = 1.0
         private var ambienceVolume: Float = 0.65
         private var builtRocketCount: Int?
         private var builtTrailLength: Float?
@@ -1317,6 +1326,15 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         private var panPreviousTranslation = CGPoint.zero
         private var pinchStartDistance = 0.0
         private let trackballSensitivity = 0.006
+
+        private final class MissileFlightState: @unchecked Sendable {
+            var didImpact = false
+            var finalPosition: SCNVector3
+
+            init(finalPosition: SCNVector3) {
+                self.finalPosition = finalPosition
+            }
+        }
 
         init(
             cameraDistance: Binding<Double>,
@@ -1364,6 +1382,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
             scene: SCNScene,
             masterVolume: Float,
             missileVolume: Float,
+            missileFireFrequency: Float,
             ambienceVolume: Float,
             isPaused: Bool,
             isFollowingRocket: Bool
@@ -1373,14 +1392,13 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
             updateVolumes(
                 masterVolume: masterVolume,
                 missileVolume: missileVolume,
+                missileFireFrequency: missileFireFrequency,
                 ambienceVolume: ambienceVolume
             )
             startAmbience()
             updatePaused(isPaused)
             setRocketsLanded(true)
-            if !isPaused && !areRocketsLanded.wrappedValue {
-                scheduleNextMissile()
-            }
+            scheduleNextMissile()
             updateFollowMode(isFollowingRocket)
         }
 
@@ -1482,8 +1500,6 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
 
             isAutolanding = true
             setRocketsLanded(false)
-            missileTimer?.invalidate()
-            missileTimer = nil
 
             let rockets = orderedRockets(in: scene)
             let platforms = orderedLandingPlatforms(in: scene)
@@ -1569,6 +1585,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
                 }
 
                 self.setRocketsLanded(true)
+                self.scheduleNextMissile()
             }
         }
 
@@ -1691,10 +1708,9 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
                     return
                 }
 
-                self.missileTimer?.invalidate()
-                self.missileTimer = nil
                 self.missionPhase = isReturningHome ? .homeLanded : .lunarLanded
                 self.setRocketsLanded(true)
+                self.scheduleNextMissile()
             }
 
             Task { @MainActor [weak self] in
@@ -1744,10 +1760,8 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         }
 
         private func orderedRockets(in scene: SCNScene) -> [SCNNode] {
-            let allRockets = scene.rootNode.childNodes { node, _ in
-                node.name == "rocket-firing-source"
-            }
-            return allRockets.sorted { RocketSceneView.rocketSortIndex(for: $0) < RocketSceneView.rocketSortIndex(for: $1) }
+            activeRocketTargets(in: scene)
+                .sorted { RocketSceneView.rocketSortIndex(for: $0) < RocketSceneView.rocketSortIndex(for: $1) }
         }
 
         private func orderedLandingPlatforms(in scene: SCNScene) -> [SCNNode] {
@@ -2237,9 +2251,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
                 return nil
             }
 
-            let rockets = scene.rootNode.childNodes { node, _ in
-                node.name == "rocket-firing-source"
-            }
+            let rockets = activeRocketTargets(in: scene)
             return rockets.randomElement()
         }
 
@@ -2476,11 +2488,16 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         }
         #endif
 
-        func updateVolumes(masterVolume: Float, missileVolume: Float, ambienceVolume: Float) {
+        func updateVolumes(masterVolume: Float, missileVolume: Float, missileFireFrequency: Float, ambienceVolume: Float) {
             self.masterVolume = max(0, min(masterVolume, 1))
             self.missileVolume = max(0, min(missileVolume, 1))
+            let previousMissileFireFrequency = self.missileFireFrequency
+            self.missileFireFrequency = max(0, min(missileFireFrequency, 4))
             self.ambienceVolume = max(0, min(ambienceVolume, 1))
             ambiencePlayer?.volume = ambiencePlaybackVolume
+            if abs(previousMissileFireFrequency - self.missileFireFrequency) > 0.01 {
+                scheduleNextMissile()
+            }
         }
 
         func updatePaused(_ isPaused: Bool) {
@@ -2503,6 +2520,10 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
             }
         }
 
+        func restartMissileLoop() {
+            scheduleNextMissile()
+        }
+
         func shouldRebuildOrbitingRockets(rocketCount: Int, trailLength: Float, padRingSpacing: Float, padLateralSpacing: Float) -> Bool {
             builtRocketCount != rocketCount ||
                 abs((builtTrailLength ?? -1) - trailLength) > 0.01 ||
@@ -2518,7 +2539,7 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         }
 
         private var ambiencePlaybackVolume: Float {
-            masterVolume * ambienceVolume * 0.36
+            min(masterVolume * ambienceVolume * 0.9, 1)
         }
 
         private var missilePlaybackVolume: Float {
@@ -2549,12 +2570,15 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         }
 
         private func scheduleNextMissile() {
-            guard !isPaused, !isAutolanding, !areRocketsLanded.wrappedValue else {
+            guard !isPaused, missileFireFrequency > 0.01, let scene, activeRocketTargets(in: scene).count >= 2 else {
+                missileTimer?.invalidate()
+                missileTimer = nil
                 return
             }
 
             missileTimer?.invalidate()
-            missileTimer = Timer.scheduledTimer(withTimeInterval: Double.random(in: 0.75...1.85), repeats: false) { [weak self] _ in
+            let interval = Double.random(in: 0.75...1.85) / Double(max(missileFireFrequency, 0.05))
+            missileTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.fireRandomMissile()
                     self?.scheduleNextMissile()
@@ -2563,60 +2587,224 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
         }
 
         private func fireRandomMissile() {
-            guard !isPaused, !isAutolanding, !areRocketsLanded.wrappedValue, let scene else {
+            guard !isPaused, missileFireFrequency > 0.01, let scene else {
                 return
             }
 
-            let rockets = scene.rootNode.childNodes { node, _ in
-                node.name == "rocket-firing-source"
-            }
-            guard let rocket = rockets.randomElement() else {
+            let rockets = activeRocketTargets(in: scene)
+            guard rockets.count >= 2,
+                  let rocket = rockets.randomElement(),
+                  let target = rockets.filter({ $0 !== rocket }).randomElement() else {
                 return
             }
 
             let presentation = rocket.presentation
             let nose = presentation.convertPosition(SCNVector3(0, 1.02, 0), to: nil)
             let body = presentation.convertPosition(SCNVector3(0, 0.22, 0), to: nil)
-            var direction = normalized(SCNVector3(nose.x - body.x, nose.y - body.y, nose.z - body.z))
+            var direction = normalized(SCNVector3(float:
+                nose.floatX - body.floatX,
+                nose.floatY - body.floatY,
+                nose.floatZ - body.floatZ
+            ))
             if direction.length < 0.01 {
-                direction = SCNVector3(0, 1, 0)
+                direction = SCNVector3(float: 0, 1, 0)
             }
+            let launchDirection = direction.simdVector
 
             let missile = missileNode()
             missile.transform = presentation.worldTransform
             missile.position = nose
             scene.rootNode.addChildNode(missile)
 
-            let drift = SCNVector3(float:
-                Float.random(in: -0.55...0.55),
-                Float.random(in: -0.35...0.35),
-                Float.random(in: -0.45...0.45)
-            )
-            let distance = Float.random(in: 2.5...4.7)
-            let end = SCNVector3(float:
-                nose.floatX + direction.floatX * distance + drift.floatX,
-                nose.floatY + direction.floatY * distance + drift.floatY,
-                nose.floatZ + direction.floatZ * distance + drift.floatZ
-            )
-            let duration = TimeInterval.random(in: 0.72...1.15)
+            let willHit = Float.random(in: 0...1) < 0.62
+            let missOffset = willHit
+                ? SIMD3<Float>(repeating: 0)
+                : SIMD3<Float>(
+                    Float.random(in: -0.95...0.95),
+                    Float.random(in: -0.65...0.65),
+                    Float.random(in: -0.95...0.95)
+                )
+            let duration = TimeInterval.random(in: 0.85...1.35)
+            let flightState = MissileFlightState(finalPosition: nose)
 
             playEffect(named: "MissileLaunch", volume: 0.62 * missilePlaybackVolume)
             playEffect(named: "MissileFlyby", volume: Bool.random() ? 0.28 * missilePlaybackVolume : 0.0)
 
             missile.runAction(.sequence([
-                .group([
-                    .move(to: end, duration: duration),
-                    .scale(to: 0.58, duration: duration)
-                ]),
+                .customAction(duration: duration) { [weak self, weak target, weak scene] node, elapsed in
+                    guard let target, !flightState.didImpact else {
+                        return
+                    }
+
+                    let rawProgress = Float(elapsed / CGFloat(duration))
+                    let progress = max(0, min(rawProgress, 1))
+                    let targetPosition = target.presentation.convertPosition(SCNVector3(0, 0.34, 0), to: nil).simdVector
+                    let curveLift = sin(progress * Float.pi) * 0.42
+                    let eased = progress * progress * (3 - 2 * progress)
+                    let aimPoint = targetPosition + missOffset * (1 - eased)
+                    let start = nose.simdVector
+                    let lead = launchDirection * min(1.1, simd_length(aimPoint - start) * 0.28)
+                    let curvedStart = start + lead * sin((1 - progress) * Float.pi * 0.5)
+                    let position = curvedStart + (aimPoint - curvedStart) * eased + SIMD3<Float>(0, curveLift, 0)
+                    let previousPosition = node.presentation.worldPosition.simdVector
+                    flightState.finalPosition = SCNVector3(position)
+                    node.position = flightState.finalPosition
+
+                    let travel = position - previousPosition
+                    if simd_length(travel) > 0.001 {
+                        node.simdOrientation = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: simd_normalize(travel))
+                    }
+
+                    let hitDistance = simd_length(position - targetPosition)
+                    if willHit && progress > 0.34 && hitDistance < 0.46 {
+                        flightState.didImpact = true
+                        Task { @MainActor [weak self, weak target, weak scene] in
+                            guard let self, let target, let scene else {
+                                return
+                            }
+                            self.explodeRocket(target, in: scene, at: SCNVector3(targetPosition))
+                        }
+                        node.removeAllActions()
+                        node.removeFromParentNode()
+                    }
+                },
                 .fadeOut(duration: 0.16),
                 .removeFromParentNode()
             ]))
 
             Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self, weak scene] _ in
                 Task { @MainActor [weak self, weak scene] in
-                    self?.addMissileSpark(at: end, to: scene)
+                    guard !flightState.didImpact else {
+                        return
+                    }
+                    self?.addMissileSpark(at: flightState.finalPosition, to: scene)
                 }
             }
+        }
+
+        private func activeRocketTargets(in scene: SCNScene) -> [SCNNode] {
+            var rockets: [SCNNode] = []
+            scene.rootNode.enumerateChildNodes { node, _ in
+                guard node.name == "rocket-firing-source",
+                      !(node.value(forKey: "isDestroyed") as? Bool ?? false),
+                      node.presentation.opacity > 0.05 else {
+                    return
+                }
+                rockets.append(node)
+            }
+            return rockets
+        }
+
+        private func explodeRocket(_ rocket: SCNNode, in scene: SCNScene, at position: SCNVector3) {
+            guard !(rocket.value(forKey: "isDestroyed") as? Bool ?? false) else {
+                return
+            }
+
+            rocket.setValue(true, forKey: "isDestroyed")
+            rocket.removeAllActions()
+            rocket.removeAllAnimations()
+            playEffect(named: "RocketExplosion", volume: min(1, 1.18 * masterVolume))
+            playEffect(named: "MissileFlyby", volume: min(1, 0.55 * missilePlaybackVolume))
+            addRocketExplosionEffect(at: position, to: scene)
+            scatterRocketFragments(from: rocket, in: scene)
+
+            if followedRocket === rocket {
+                followedRocket = randomRocket()
+            }
+
+            rocket.opacity = 0
+            rocket.runAction(.sequence([
+                .wait(duration: 0.08),
+                .removeFromParentNode()
+            ]))
+        }
+
+        private func scatterRocketFragments(from rocket: SCNNode, in scene: SCNScene) {
+            var fragments: [SCNNode] = []
+            rocket.enumerateChildNodes { child, stop in
+                guard let geometry = child.geometry else {
+                    return
+                }
+
+                let fragment = SCNNode(geometry: geometry.copy() as? SCNGeometry)
+                fragment.name = "rocket-fragment"
+                fragment.transform = child.presentation.worldTransform
+                scene.rootNode.addChildNode(fragment)
+                fragments.append(fragment)
+                if fragments.count >= 14 {
+                    stop.pointee = true
+                }
+            }
+
+            if fragments.isEmpty {
+                for _ in 0..<10 {
+                    let shard = SCNBox(
+                        width: CGFloat.random(in: 0.04...0.14),
+                        height: CGFloat.random(in: 0.05...0.22),
+                        length: CGFloat.random(in: 0.04...0.16),
+                        chamferRadius: 0.01
+                    )
+                    shard.materials = [missileMaterial([UIColor.systemOrange, .systemCyan, .systemPurple, .white].randomElement() ?? .white)]
+                    let fragment = SCNNode(geometry: shard)
+                    fragment.position = rocket.presentation.worldPosition
+                    scene.rootNode.addChildNode(fragment)
+                    fragments.append(fragment)
+                }
+            }
+
+            for fragment in fragments {
+                let direction = simd_normalize(SIMD3<Float>(
+                    Float.random(in: -1...1),
+                    Float.random(in: -0.25...1.35),
+                    Float.random(in: -1...1)
+                ))
+                let distance = Float.random(in: 0.85...2.4)
+                let move = SCNAction.moveBy(
+                    x: CGFloat(direction.x * distance),
+                    y: CGFloat(direction.y * distance),
+                    z: CGFloat(direction.z * distance),
+                    duration: TimeInterval.random(in: 0.85...1.55)
+                )
+                let spin = SCNAction.rotateBy(
+                    x: CGFloat.random(in: -3.4...3.4),
+                    y: CGFloat.random(in: -4.8...4.8),
+                    z: CGFloat.random(in: -3.4...3.4),
+                    duration: move.duration
+                )
+                fragment.runAction(.sequence([
+                    .group([move, spin, .fadeOut(duration: move.duration)]),
+                    .removeFromParentNode()
+                ]))
+            }
+        }
+
+        private func addRocketExplosionEffect(at position: SCNVector3, to scene: SCNScene) {
+            let flashGeometry = SCNSphere(radius: 0.34)
+            flashGeometry.segmentCount = 24
+            let flashMaterial = missileMaterial(.systemYellow)
+            flashMaterial.emission.contents = UIColor.white
+            flashGeometry.materials = [flashMaterial]
+            let flash = SCNNode(geometry: flashGeometry)
+            flash.name = "rocket-explosion-flash"
+            flash.position = position
+            scene.rootNode.addChildNode(flash)
+            flash.runAction(.sequence([
+                .group([
+                    .scale(to: 2.4, duration: 0.22),
+                    .fadeOut(duration: 0.22)
+                ]),
+                .removeFromParentNode()
+            ]))
+
+            let blast = SCNNode()
+            blast.name = "rocket-explosion-particles"
+            blast.position = position
+            blast.addParticleSystem(rocketExplosionParticles())
+            scene.rootNode.addChildNode(blast)
+            blast.runAction(.sequence([
+                .wait(duration: 1.1),
+                .removeFromParentNode()
+            ]))
         }
 
         private func missileNode() -> SCNNode {
@@ -2734,6 +2922,28 @@ struct RocketSceneView: PlatformSceneViewRepresentable {
             particles.particleVelocity = 0.52
             particles.particleVelocityVariation = 0.38
             particles.isAffectedByGravity = false
+            return particles
+        }
+
+        private func rocketExplosionParticles() -> SCNParticleSystem {
+            let particles = SCNParticleSystem()
+            particles.birthRate = 1200
+            particles.loops = false
+            particles.emissionDuration = 0.16
+            particles.particleLifeSpan = 0.78
+            particles.particleLifeSpanVariation = 0.34
+            particles.particleSize = 0.16
+            particles.particleSizeVariation = 0.12
+            particles.particleImage = UIImage(named: "PremiumParticle")
+            particles.particleColor = UIColor.systemOrange.withAlphaComponent(0.96)
+            particles.particleColorVariation = SCNVector4(0.28, 0.22, 0.08, 0.42)
+            particles.blendMode = .additive
+            particles.emitterShape = SCNSphere(radius: 0.18)
+            particles.spreadingAngle = 180
+            particles.particleVelocity = 1.7
+            particles.particleVelocityVariation = 1.05
+            particles.isAffectedByGravity = false
+            particles.stretchFactor = 0.24
             return particles
         }
 
@@ -2856,6 +3066,7 @@ private struct SettingsButton: View {
 private struct SettingsView: View {
     @Binding var masterVolume: Double
     @Binding var missileVolume: Double
+    @Binding var missileFireFrequency: Double
     @Binding var ambienceVolume: Double
     @Binding var rocketCount: Int
     @Binding var trailLength: Double
@@ -2937,6 +3148,14 @@ private struct SettingsView: View {
                     valueText: String(format: "%.1fx", trailLength),
                     value: $trailLength,
                     bounds: 0.35...2.5
+                )
+
+                SettingsSlider(
+                    title: "Frequence de tir",
+                    systemName: "timer",
+                    valueText: missileFireFrequency <= 0.01 ? "Off" : String(format: "%.1fx", missileFireFrequency),
+                    value: $missileFireFrequency,
+                    bounds: 0...4.0
                 )
 
                 SettingsSlider(
