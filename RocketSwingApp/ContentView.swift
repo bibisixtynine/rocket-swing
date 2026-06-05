@@ -1,6 +1,50 @@
 import SwiftUI
 @preconcurrency import SceneKit
+#if os(macOS)
+import AppKit
+typealias UIColor = NSColor
+typealias UIImage = NSImage
+typealias PlatformSceneViewRepresentable = NSViewRepresentable
+
+final class CADisplayLink: NSObject {
+    var preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+    private(set) var timestamp: CFTimeInterval = CACurrentMediaTime()
+    private weak var target: AnyObject?
+    private let selector: Selector
+    private var timer: Timer?
+
+    init(target: AnyObject, selector: Selector) {
+        self.target = target
+        self.selector = selector
+    }
+
+    func add(to runLoop: RunLoop, forMode mode: RunLoop.Mode) {
+        let preferredRate = preferredFrameRateRange.preferred ?? 60
+        let interval = 1 / max(1, preferredRate)
+        let timer = Timer(timeInterval: TimeInterval(interval), repeats: true) { [weak self] _ in
+            self?.step()
+        }
+        self.timer = timer
+        runLoop.add(timer, forMode: mode)
+    }
+
+    func invalidate() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    @objc private func step() {
+        timestamp = CACurrentMediaTime()
+        _ = target?.perform(selector, with: self)
+    }
+}
+
+private protocol PlatformGestureDelegate {}
+#else
 import UIKit
+typealias PlatformSceneViewRepresentable = UIViewRepresentable
+private typealias PlatformGestureDelegate = UIGestureRecognizerDelegate
+#endif
 @preconcurrency import AVFoundation
 import simd
 
@@ -84,7 +128,9 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .ignoresSafeArea()
+        #if !os(macOS)
         .statusBarHidden(true)
+        #endif
         .hiddenPersistentSystemOverlaysWhenAvailable()
         .onAppear {
             cameraDistance = min(max(cameraDistance, minimumCameraDistance), maximumCameraDistance)
@@ -115,6 +161,9 @@ struct ContentView: View {
 private extension View {
     @ViewBuilder
     func settingsSheetPresentationStyle() -> some View {
+        #if os(macOS)
+        self
+        #else
         if #available(iOS 16.0, *) {
             self
                 .presentationDetents([.medium])
@@ -122,10 +171,11 @@ private extension View {
         } else {
             self
         }
+        #endif
     }
 }
 
-struct RocketSceneView: UIViewRepresentable {
+struct RocketSceneView: PlatformSceneViewRepresentable {
     private static let platformDiameter: Float = 1.0
     private static let platformDiskRadius: CGFloat = 0.5
     private static let platformDiskHeight: CGFloat = 0.16
@@ -161,13 +211,35 @@ struct RocketSceneView: UIViewRepresentable {
         )
     }
 
+    #if os(macOS)
+    func makeNSView(context: Context) -> SCNView {
+        makeSceneView(context: context)
+    }
+
+    func updateNSView(_ nsView: SCNView, context: Context) {
+        updateSceneView(nsView, context: context)
+    }
+    #else
     func makeUIView(context: Context) -> SCNView {
+        makeSceneView(context: context)
+    }
+
+    func updateUIView(_ uiView: SCNView, context: Context) {
+        updateSceneView(uiView, context: context)
+    }
+    #endif
+
+    private func makeSceneView(context: Context) -> SCNView {
         let view = SCNView()
         let scene = makeScene()
         view.scene = scene
         view.backgroundColor = .black
+        #if os(macOS)
+        view.allowsCameraControl = true
+        #else
         view.allowsCameraControl = false
         view.isUserInteractionEnabled = true
+        #endif
         view.antialiasingMode = .multisampling4X
         context.coordinator.installGestures(on: view)
         context.coordinator.start(
@@ -181,7 +253,7 @@ struct RocketSceneView: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: SCNView, context: Context) {
+    private func updateSceneView(_ uiView: SCNView, context: Context) {
         context.coordinator.updateVolumes(
             masterVolume: masterVolume,
             missileVolume: missileVolume,
@@ -944,7 +1016,7 @@ struct RocketSceneView: UIViewRepresentable {
         point = rotate(point, aroundZ: rotation.2)
 
         let wobble = sin(angle * Float((index % 4) + 2) + phase) * 0.10
-        return SCNVector3(point.x, point.y + wobble, point.z)
+        return SCNVector3(float: point.floatX, point.floatY + wobble, point.floatZ)
     }
 
     nonisolated private static func rocketOrientation(for index: Int, progress: Float) -> simd_quatf {
@@ -962,26 +1034,26 @@ struct RocketSceneView: UIViewRepresentable {
     }
 
     nonisolated private static func rotate(_ vector: SCNVector3, aroundX angle: Float) -> SCNVector3 {
-        SCNVector3(
-            vector.x,
-            vector.y * cos(angle) - vector.z * sin(angle),
-            vector.y * sin(angle) + vector.z * cos(angle)
+        SCNVector3(float:
+            vector.floatX,
+            vector.floatY * cos(angle) - vector.floatZ * sin(angle),
+            vector.floatY * sin(angle) + vector.floatZ * cos(angle)
         )
     }
 
     nonisolated private static func rotate(_ vector: SCNVector3, aroundY angle: Float) -> SCNVector3 {
-        SCNVector3(
-            vector.x * cos(angle) + vector.z * sin(angle),
-            vector.y,
-            -vector.x * sin(angle) + vector.z * cos(angle)
+        SCNVector3(float:
+            vector.floatX * cos(angle) + vector.floatZ * sin(angle),
+            vector.floatY,
+            -vector.floatX * sin(angle) + vector.floatZ * cos(angle)
         )
     }
 
     nonisolated private static func rotate(_ vector: SCNVector3, aroundZ angle: Float) -> SCNVector3 {
-        SCNVector3(
-            vector.x * cos(angle) - vector.y * sin(angle),
-            vector.x * sin(angle) + vector.y * cos(angle),
-            vector.z
+        SCNVector3(float:
+            vector.floatX * cos(angle) - vector.floatY * sin(angle),
+            vector.floatX * sin(angle) + vector.floatY * cos(angle),
+            vector.floatZ
         )
     }
 
@@ -1190,7 +1262,7 @@ struct RocketSceneView: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+    final class Coordinator: NSObject, PlatformGestureDelegate {
         private enum MissionPhase {
             case homeLanded
             case outbound
@@ -1276,6 +1348,7 @@ struct RocketSceneView: UIViewRepresentable {
             }
 
             sceneView = view
+            #if !os(macOS)
             let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
             pan.maximumNumberOfTouches = 1
             pan.delegate = self
@@ -1284,6 +1357,7 @@ struct RocketSceneView: UIViewRepresentable {
             let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
             pinch.delegate = self
             view.addGestureRecognizer(pinch)
+            #endif
         }
 
         func start(
@@ -1433,10 +1507,10 @@ struct RocketSceneView: UIViewRepresentable {
                 let platformPosition = platform.presentation.worldPosition
                 let landingHeight = RocketSceneView.landingHeight(for: rocket)
                 let hoverHeight: Float = landingHeight > 0.6 ? 2.25 : 1.35
-                let hoverPosition = SCNVector3(
-                    platformPosition.x,
-                    platformPosition.y + hoverHeight,
-                    platformPosition.z
+                let hoverPosition = SCNVector3(float:
+                    platformPosition.floatX,
+                    platformPosition.floatY + hoverHeight,
+                    platformPosition.floatZ
                 )
                 let yaw = Float(index) * 0.73
                 let approachDuration = TimeInterval(2.35 + Double(index % 5) * 0.22)
@@ -2024,10 +2098,10 @@ struct RocketSceneView: UIViewRepresentable {
             progress: Float
         ) -> SCNVector3 {
             let t = progress
-            return SCNVector3(
-                currentPosition.x + (targetPosition.x - currentPosition.x) * t,
-                currentPosition.y + (targetPosition.y - currentPosition.y) * t,
-                currentPosition.z + (targetPosition.z - currentPosition.z) * t
+            return SCNVector3(float:
+                currentPosition.floatX + (targetPosition.floatX - currentPosition.floatX) * t,
+                currentPosition.floatY + (targetPosition.floatY - currentPosition.floatY) * t,
+                currentPosition.floatZ + (targetPosition.floatZ - currentPosition.floatZ) * t
             )
         }
 
@@ -2338,6 +2412,7 @@ struct RocketSceneView: UIViewRepresentable {
             }
         }
 
+        #if !os(macOS)
         @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
             guard !isFollowingRocket else {
                 return
@@ -2399,6 +2474,7 @@ struct RocketSceneView: UIViewRepresentable {
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
             true
         }
+        #endif
 
         func updateVolumes(masterVolume: Float, missileVolume: Float, ambienceVolume: Float) {
             self.masterVolume = max(0, min(masterVolume, 1))
@@ -2456,8 +2532,10 @@ struct RocketSceneView: UIViewRepresentable {
             }
 
             do {
+                #if !os(macOS)
                 try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
                 try? AVAudioSession.sharedInstance().setActive(true)
+                #endif
 
                 let player = try AVAudioPlayer(contentsOf: url)
                 player.numberOfLoops = -1
@@ -2509,16 +2587,16 @@ struct RocketSceneView: UIViewRepresentable {
             missile.position = nose
             scene.rootNode.addChildNode(missile)
 
-            let drift = SCNVector3(
+            let drift = SCNVector3(float:
                 Float.random(in: -0.55...0.55),
                 Float.random(in: -0.35...0.35),
                 Float.random(in: -0.45...0.45)
             )
             let distance = Float.random(in: 2.5...4.7)
-            let end = SCNVector3(
-                nose.x + direction.x * distance + drift.x,
-                nose.y + direction.y * distance + drift.y,
-                nose.z + direction.z * distance + drift.z
+            let end = SCNVector3(float:
+                nose.floatX + direction.floatX * distance + drift.floatX,
+                nose.floatY + direction.floatY * distance + drift.floatY,
+                nose.floatZ + direction.floatZ * distance + drift.floatZ
             )
             let duration = TimeInterval.random(in: 0.72...1.15)
 
@@ -2671,16 +2749,36 @@ struct RocketSceneView: UIViewRepresentable {
         private func normalized(_ vector: SCNVector3) -> SCNVector3 {
             let length = vector.length
             guard length > 0 else {
-                return SCNVector3(0, 1, 0)
+                return SCNVector3(float: 0, 1, 0)
             }
-            return SCNVector3(vector.x / length, vector.y / length, vector.z / length)
+            return SCNVector3(float: vector.floatX / length, vector.floatY / length, vector.floatZ / length)
         }
     }
 }
 
 private extension SCNVector3 {
+    init(float x: Float, _ y: Float, _ z: Float) {
+        #if os(macOS)
+        self.init(CGFloat(x), CGFloat(y), CGFloat(z))
+        #else
+        self.init(x, y, z)
+        #endif
+    }
+
+    var floatX: Float {
+        Float(x)
+    }
+
+    var floatY: Float {
+        Float(y)
+    }
+
+    var floatZ: Float {
+        Float(z)
+    }
+
     var length: Float {
-        sqrt(x * x + y * y + z * z)
+        sqrt(floatX * floatX + floatY * floatY + floatZ * floatZ)
     }
 }
 
@@ -2766,60 +2864,30 @@ private struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section("Audio") {
-                    VolumeSlider(
-                        title: "Volume general",
-                        systemName: "speaker.wave.2.fill",
-                        value: $masterVolume
-                    )
-                    VolumeSlider(
-                        title: "Missiles",
-                        systemName: "scope",
-                        value: $missileVolume
-                    )
-                    VolumeSlider(
-                        title: "Ambiance",
-                        systemName: "sparkles",
-                        value: $ambienceVolume
-                    )
+        #if os(macOS)
+        VStack(spacing: 0) {
+            HStack {
+                Text("Parametres")
+                    .font(.title2.weight(.semibold))
+                Spacer()
+                Button("OK") {
+                    dismiss()
                 }
-
-                Section("Scene") {
-                    Stepper(value: $rocketCount, in: 1...50) {
-                        SettingsValueRow(
-                            title: "Fusees",
-                            systemName: "paperplane.fill",
-                            value: "\(rocketCount)"
-                        )
-                    }
-
-                    SettingsSlider(
-                        title: "Trainees",
-                        systemName: "comet.fill",
-                        valueText: String(format: "%.1fx", trailLength),
-                        value: $trailLength,
-                        bounds: 0.35...2.5
-                    )
-
-                    SettingsSlider(
-                        title: "Ecart anneaux",
-                        systemName: "circle.grid.2x2.fill",
-                        valueText: String(format: "%.1fx pod", padRingSpacing),
-                        value: $padRingSpacing,
-                        bounds: 0...3.0
-                    )
-
-                    SettingsSlider(
-                        title: "Ecart lateral",
-                        systemName: "arrow.left.and.right",
-                        valueText: String(format: "%.1fx pod", padLateralSpacing),
-                        value: $padLateralSpacing,
-                        bounds: 0...3.0
-                    )
-                }
+                .keyboardShortcut(.defaultAction)
             }
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
+
+            settingsForm
+                .formStyle(.grouped)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
+        }
+        .frame(minWidth: 460, idealWidth: 500, minHeight: 520, idealHeight: 560)
+        #else
+        NavigationView {
+            settingsForm
             .navigationTitle("Parametres")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2830,6 +2898,63 @@ private struct SettingsView: View {
                 }
             }
             .navigationViewStyle(.stack)
+        }
+        #endif
+    }
+
+    private var settingsForm: some View {
+        Form {
+            Section("Audio") {
+                VolumeSlider(
+                    title: "Volume general",
+                    systemName: "speaker.wave.2.fill",
+                    value: $masterVolume
+                )
+                VolumeSlider(
+                    title: "Missiles",
+                    systemName: "scope",
+                    value: $missileVolume
+                )
+                VolumeSlider(
+                    title: "Ambiance",
+                    systemName: "sparkles",
+                    value: $ambienceVolume
+                )
+            }
+
+            Section("Scene") {
+                Stepper(value: $rocketCount, in: 1...50) {
+                    SettingsValueRow(
+                        title: "Fusees",
+                        systemName: "paperplane.fill",
+                        value: "\(rocketCount)"
+                    )
+                }
+
+                SettingsSlider(
+                    title: "Trainees",
+                    systemName: "comet.fill",
+                    valueText: String(format: "%.1fx", trailLength),
+                    value: $trailLength,
+                    bounds: 0.35...2.5
+                )
+
+                SettingsSlider(
+                    title: "Ecart anneaux",
+                    systemName: "circle.grid.2x2.fill",
+                    valueText: String(format: "%.1fx pod", padRingSpacing),
+                    value: $padRingSpacing,
+                    bounds: 0...3.0
+                )
+
+                SettingsSlider(
+                    title: "Ecart lateral",
+                    systemName: "arrow.left.and.right",
+                    valueText: String(format: "%.1fx pod", padLateralSpacing),
+                    value: $padLateralSpacing,
+                    bounds: 0...3.0
+                )
+            }
         }
     }
 }
@@ -2899,10 +3024,10 @@ private extension View {
 
 private extension SCNVector3 {
     init(_ vector: SIMD3<Float>) {
-        self.init(vector.x, vector.y, vector.z)
+        self.init(float: vector.x, vector.y, vector.z)
     }
 
     var simdVector: SIMD3<Float> {
-        SIMD3<Float>(x, y, z)
+        SIMD3<Float>(floatX, floatY, floatZ)
     }
 }
